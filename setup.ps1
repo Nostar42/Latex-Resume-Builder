@@ -34,7 +34,7 @@ if (-not $py) {
     }
     if (-not $py) { Fail "Python still not found after install. Restart your terminal and re-run." }
 }
-Ok "Python: $((& $py --version 2>&1) | ForEach-Object { "$_" } | Select-Object -First 1)"
+Ok "Python: $(& $py --version 2>&1)"
 
 # ── pip packages ──────────────────────────────────────────────────────────────
 Step "Installing Python packages..."
@@ -47,8 +47,7 @@ Step "Checking nginx..."
 $nginxExe = "$root\nginx\nginx.exe"
 
 if (Test-Path $nginxExe) {
-    # nginx writes version to stderr; convert to string to avoid NativeCommandError
-    $ver = (& $nginxExe -v 2>&1) | ForEach-Object { "$_" } | Select-Object -First 1
+    $ver = & $nginxExe -v 2>&1
     Ok "nginx already present ($ver)."
 } else {
     $version = "1.26.2"

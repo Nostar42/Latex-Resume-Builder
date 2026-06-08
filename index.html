@@ -448,14 +448,21 @@
   }
 
   // ── Model picker ──
-  // Full catalog, weak -> strong. star=true marks the best 5.
+  // Grouped catalog. family = optgroup label. star = recommended.
   const MODEL_CATALOG = [
-    { name: 'qwen2.5-coder:0.5b', label: 'Qwen2.5-Coder 0.5B', star: false },
-    { name: 'qwen2.5-coder:1.5b', label: 'Qwen2.5-Coder 1.5B', star: false },
-    { name: 'qwen2.5-coder:3b',   label: 'Qwen2.5-Coder 3B',   star: false },
-    { name: 'qwen2.5-coder:7b',   label: 'Qwen2.5-Coder 7B',   star: false },
-    { name: 'qwen2.5-coder:14b',  label: 'Qwen2.5-Coder 14B',  star: true  },
-    { name: 'qwen2.5-coder:32b',  label: 'Qwen2.5-Coder 32B',  star: true  },
+    // Qwen2.5-Coder family
+    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:0.5b', label: 'Qwen2.5-Coder 0.5B', star: false },
+    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:1.5b', label: 'Qwen2.5-Coder 1.5B', star: false },
+    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:3b',   label: 'Qwen2.5-Coder 3B',   star: false },
+    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:7b',   label: 'Qwen2.5-Coder 7B',   star: false },
+    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:14b',  label: 'Qwen2.5-Coder 14B',  star: true  },
+    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:32b',  label: 'Qwen2.5-Coder 32B',  star: true  },
+    // Meta Llama 3.3 family
+    { family: 'Meta Llama 3.3', name: 'llama3.3',           label: 'Llama 3.3 70B',      star: true  },
+    // Meta CodeLlama family
+    { family: 'Meta CodeLlama', name: 'codellama:7b',        label: 'CodeLlama 7B',        star: false },
+    { family: 'Meta CodeLlama', name: 'codellama:13b',       label: 'CodeLlama 13B',       star: false },
+    { family: 'Meta CodeLlama', name: 'codellama:34b',       label: 'CodeLlama 34B',       star: true  },
   ];
 
   async function loadModels() {
@@ -468,14 +475,21 @@
       sel.innerHTML = '';
       sel.disabled = false;
 
-      MODEL_CATALOG.forEach(m => {
-        const isInstalled = installed.has(m.name);
-        const o = document.createElement('option');
-        o.value = m.name;
-        o.textContent = (m.star ? '★ ' : '  ') + m.label + (isInstalled ? '' : '  — not installed');
-        o.disabled = !isInstalled;
-        if (m.name === current) o.selected = true;
-        sel.appendChild(o);
+      // Build optgroups by family
+      const families = [...new Set(MODEL_CATALOG.map(m => m.family))];
+      families.forEach(family => {
+        const grp = document.createElement('optgroup');
+        grp.label = family;
+        MODEL_CATALOG.filter(m => m.family === family).forEach(m => {
+          const isInstalled = installed.has(m.name);
+          const o = document.createElement('option');
+          o.value = m.name;
+          o.textContent = (m.star ? '★ ' : '  ') + m.label + (isInstalled ? '' : '  — not installed');
+          o.disabled = !isInstalled;
+          if (m.name === current) o.selected = true;
+          grp.appendChild(o);
+        });
+        sel.appendChild(grp);
       });
 
       // If the active model isn't in the catalog (e.g. set via OLLAMA_MODEL env var),

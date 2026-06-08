@@ -53,12 +53,28 @@ winget install Ollama.Ollama
 
 Then pull at least one model. Pick based on your available RAM:
 
+**Qwen2.5-Coder** (best for code/LaTeX editing)
+
 | Model | Size on disk | RAM needed | Speed (CPU) |
 |-------|-------------|------------|-------------|
 | `qwen2.5-coder:1.5b` | ~1.0 GB | ~2 GB | Very fast |
 | `qwen2.5-coder:3b` | ~1.9 GB | ~4 GB | Fast |
 | `qwen2.5-coder:7b` | ~4.7 GB | ~8 GB | Moderate |
 | `qwen2.5-coder:14b` | ~9.0 GB | ~16 GB | Slow on CPU |
+
+**Meta Llama 3.3** (general-purpose, strong reasoning)
+
+| Model | Size on disk | RAM needed | Speed (CPU) |
+|-------|-------------|------------|-------------|
+| `llama3.3` | ~43 GB | ~48 GB | Very slow on CPU; GPU recommended |
+
+**Meta CodeLlama** (code-focused, Llama-based)
+
+| Model | Size on disk | RAM needed | Speed (CPU) |
+|-------|-------------|------------|-------------|
+| `codellama:7b` | ~3.8 GB | ~8 GB | Moderate |
+| `codellama:13b` | ~7.4 GB | ~16 GB | Slow on CPU |
+| `codellama:34b` | ~19 GB | ~32 GB | Very slow on CPU; GPU recommended |
 
 ```powershell
 ollama pull qwen2.5-coder:3b   # recommended starting point
