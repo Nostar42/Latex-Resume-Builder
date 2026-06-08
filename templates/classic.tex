@@ -1,0 +1,180 @@
+% !TEMPLATE: Classic Two-Column
+\documentclass[10pt, letterpaper]{article}
+
+% --- Packages ---
+\usepackage[margin=0.75in, top=0.6in, bottom=0.6in]{geometry}
+\usepackage{multicol}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{fontawesome5}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{parskip}
+
+% --- Hyperlink styling ---
+\hypersetup{
+    colorlinks=true,
+    urlcolor=black,
+    linkcolor=black
+}
+
+% --- Section formatting ---
+\titleformat{\section}
+    {\large\bfseries\uppercase}
+    {}{0em}{}
+    [\titlerule]
+\titlespacing{\section}{0pt}{8pt}{4pt}
+
+% --- No indent ---
+\setlength{\parindent}{0pt}
+\setlength{\columnsep}{1.5em}
+
+% --- List settings ---
+\setlist[itemize]{leftmargin=*, itemsep=1pt, topsep=2pt, parsep=0pt}
+
+% --- Custom commands ---
+\newcommand{\resumeEntry}[4]{%
+    {\large #1} \\
+    \textbf{#2} \\
+    {\small \faCalendar\enspace #3 \quad \faMapMarker*\enspace #4}
+}
+\newcommand{\resumeEntryNoLocation}[3]{%
+    {\large #1} \\
+    \textbf{#2} \\
+    {\small \faCalendar\enspace #3}
+}
+
+% ================================================================
+\begin{document}
+
+% --- HEADER ---
+\begin{center}
+    {\fontsize{28}{34}\bfseries FIRST LAST} \\[4pt]
+    {\large\bfseries Job Title $|$ Professional Field} \\[6pt]
+    \small
+    \faEnvelope\enspace \href{mailto:email@example.com}{email@example.com} \quad
+    \faPhone\enspace +1 (555) 123-4567 \quad
+    \faMapMarker*\enspace City, State, USA \\[2pt]
+    \faGithub\enspace \href{https://github.com/username}{github.com/username} \quad
+    \faLinkedin\enspace \href{https://www.linkedin.com/in/username/}{linkedin.com/in/username}
+\end{center}
+
+\vspace{4pt}
+
+% --- OBJECTIVE ---
+\section{Objective}
+
+Results-driven professional with several years of experience in your field of expertise. Skilled in core competency one, core competency two, and core competency three. Proven track record of delivering high-quality results and collaborating effectively across teams. Seeking to apply a strong technical foundation and hands-on experience to contribute to challenging and impactful projects.
+
+\vspace{6pt}
+
+% --- TWO COLUMN BODY ---
+\begin{multicols}{2}
+
+% ---- LEFT COLUMN ----
+
+\section{Education}
+
+\resumeEntry{University Name}{B.S. in Your Major}{Month Year -- Month Year}{City, State}
+
+GPA = 0.00
+
+\vspace{6pt}\hrule\vspace{6pt}
+
+\resumeEntry{College Name}{Associate Degree}{Month Year -- Month Year}{City, State}
+
+\vspace{6pt}\hrule\vspace{6pt}
+
+\resumeEntry{Institution Name}{Relevant Program}{Year}{City, Country}
+
+\vspace{6pt}\hrule\vspace{6pt}
+
+\resumeEntry{Technical School}{Certificate Program}{Month Year -- Month Year}{City, State}
+
+% ---
+
+\section{Skills}
+
+\begin{itemize}
+    \item Core Skill One
+    \item Core Skill Two
+    \item Core Skill Three
+    \item Core Skill Four
+    \item Programming or Tools
+    \item Additional Skill Area
+\end{itemize}
+
+% ---
+
+\section{Software}
+
+\begin{itemize}
+    \item Software One, Software Two
+    \item Software Three, Software Four
+    \item Tool One, Tool Two
+    \item \LaTeX{} and Editors
+    \item Development Environments
+    \item Design Applications
+    \item Office Productivity Suite
+\end{itemize}
+
+% ---
+
+\section{Certifications}
+
+\begin{itemize}
+    \item \textbf{Certification Name} \\
+    {\small Issuing Organization}
+\end{itemize}
+
+\columnbreak
+
+% ---- RIGHT COLUMN ----
+
+\section{Experience}
+
+\resumeEntry{Job Title}{Company Name}{Year -- Present}{City, State}
+\begin{itemize}
+    \item Key responsibility or accomplishment with measurable impact
+    \item Describe a core task performed using relevant tools or methods
+    \item Highlight a project or deliverable you contributed to
+    \item Note collaboration with teams, clients, or stakeholders
+\end{itemize}
+
+\vspace{6pt}\hrule\vspace{6pt}
+
+\resumeEntry{Previous Job Title}{Company Name}{Month Year -- Year}{City, State}
+\begin{itemize}
+    \item Responsibility or achievement in this role
+    \item Another notable contribution or skill applied
+\end{itemize}
+
+\vspace{6pt}\hrule\vspace{6pt}
+
+\resumeEntryNoLocation{Earlier Role}{Organization Name}{Month Year -- Month Year}
+\begin{itemize}
+    \item Relevant experience gained in this position
+    \item Skill or quality demonstrated
+\end{itemize}
+
+\vspace{6pt}\hrule\vspace{6pt}
+
+\resumeEntryNoLocation{First Role}{Organization Name}{Month Year -- Month Year}
+\begin{itemize}
+    \item Foundational experience and responsibilities
+\end{itemize}
+
+% ---
+
+\section{Organizations}
+
+\textbf{Role, Organization Name} --- Brief description of involvement and contributions
+
+\vspace{4pt}
+
+\textbf{Group or Club Name} --- Volunteer work and participation
+
+\end{multicols}
+
+\end{document}

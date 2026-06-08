@@ -1,0 +1,88 @@
+% !TEMPLATE: Modern Accent
+\documentclass[10pt, letterpaper]{article}
+
+\usepackage[margin=0.6in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fontawesome5}
+\usepackage{parskip}
+
+\definecolor{accent}{HTML}{2563EB}
+\definecolor{ink}{HTML}{1F2937}
+
+\hypersetup{colorlinks=true, urlcolor=accent, linkcolor=accent}
+\color{ink}
+\setlength{\parindent}{0pt}
+\setlist[itemize]{leftmargin=1.2em, itemsep=1pt, topsep=2pt, parsep=0pt}
+
+% Section: accent heading with a thin rule beneath
+\titleformat{\section}
+    {\large\bfseries\color{accent}}{}{0em}{}
+    [{\color{accent!35}\titlerule[1.2pt]}]
+\titlespacing{\section}{0pt}{10pt}{4pt}
+
+% Skill "pill"
+\newcommand{\pill}[1]{\colorbox{accent!12}{\textcolor{accent}{\strut\,#1\,}}\hspace{3pt}}
+
+% Experience entry: role / dates on one line, org / location on the next
+\newcommand{\expentry}[4]{%
+    {\bfseries #1}\hfill{\small #3}\\
+    {\color{accent}#2}\hfill{\small\itshape #4}\par\vspace{2pt}
+}
+
+\begin{document}
+
+% --- HEADER BAND ---
+{\setlength{\fboxsep}{12pt}%
+\noindent\colorbox{accent}{%
+\begin{minipage}{\dimexpr\textwidth-2\fboxsep\relax}
+    \color{white}
+    {\fontsize{26}{30}\bfseries FIRST LAST}\\[3pt]
+    {\large Job Title \textbullet{} Professional Field}\\[6pt]
+    {\small
+    \faEnvelope~\href{mailto:email@example.com}{email@example.com} \quad
+    \faPhone~+1 (555) 123-4567 \quad
+    \faMapMarker*~City, State \quad
+    \faLinkedin~\href{https://linkedin.com/in/username}{in/username}}
+\end{minipage}}}
+
+\vspace{6pt}
+
+\section{Summary}
+Results-driven professional with several years of experience delivering high-quality work in your field. Known for combining strong technical skills with clear communication and a collaborative, detail-oriented approach to solving problems.
+
+\section{Experience}
+\expentry{Job Title}{Company Name}{Year -- Present}{City, State}
+\begin{itemize}
+    \item Key accomplishment with a measurable result or impact
+    \item Core responsibility carried out with relevant tools and methods
+    \item Cross-functional collaboration with teams or stakeholders
+\end{itemize}
+\vspace{5pt}
+\expentry{Previous Job Title}{Company Name}{Year -- Year}{City, State}
+\begin{itemize}
+    \item Notable contribution or improvement you drove
+    \item Another responsibility or skill demonstrated in the role
+\end{itemize}
+\vspace{5pt}
+\expentry{Earlier Role}{Organization Name}{Year -- Year}{City, State}
+\begin{itemize}
+    \item Foundational experience relevant to your career path
+\end{itemize}
+
+\section{Education}
+{\bfseries University Name} \hfill {\small Month Year -- Month Year}\\
+{\color{accent}B.S. in Your Major} \hfill {\small City, State}
+
+\section{Skills}
+\pill{Core Skill One}\pill{Core Skill Two}\pill{Core Skill Three}\pill{Tool One}\pill{Tool Two}\pill{Programming}\pill{Methodology}\pill{Soft Skill}
+
+\section{Certifications}
+{\bfseries Certification Name} --- Issuing Organization \hfill {\small Year}
+
+\end{document}

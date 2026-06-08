@@ -1,0 +1,73 @@
+% !TEMPLATE: Minimalist Serif
+\documentclass[11pt, letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{mathpazo}        % Palatino
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{parskip}
+
+\hypersetup{colorlinks=true, urlcolor=black, linkcolor=black}
+\setlength{\parindent}{0pt}
+\setlist[itemize]{leftmargin=1.1em, itemsep=1pt, topsep=2pt, parsep=0pt, label=\textendash}
+
+% Section: small-caps heading over a thin rule, with airy spacing
+\titleformat{\section}
+    {\normalsize\scshape\bfseries}{}{0em}{}
+    [\vspace{1pt}\hrule height 0.4pt]
+\titlespacing{\section}{0pt}{14pt}{6pt}
+
+% Entry: organization left (bold), dates right (italic); role on next line
+\newcommand{\entry}[3]{%
+    {\bfseries #1}\hfill{\itshape #2}\\
+    #3\par\vspace{1pt}
+}
+
+\begin{document}
+
+% --- HEADER ---
+\begin{center}
+    {\fontsize{26}{30}\selectfont FIRST LAST}\\[6pt]
+    {\scshape\large Job Title}\\[8pt]
+    {\small email@example.com \quad\textbullet\quad +1 (555) 123-4567 \quad\textbullet\quad City, State}\\[2pt]
+    {\small \href{https://linkedin.com/in/username}{linkedin.com/in/username} \quad\textbullet\quad \href{https://github.com/username}{github.com/username}}
+\end{center}
+
+\vspace{6pt}
+
+\section{Profile}
+A concise two-line summary of who you are and the value you bring. Emphasize your strongest area of expertise and the kind of role or impact you are aiming for next.
+
+\section{Experience}
+\entry{Company Name --- Job Title}{Year -- Present}{City, State}
+\begin{itemize}
+    \item Key accomplishment described with a clear, measurable outcome
+    \item Core responsibility carried out with relevant methods and tools
+    \item Contribution to a notable project, product, or initiative
+\end{itemize}
+
+\vspace{6pt}
+\entry{Company Name --- Previous Job Title}{Year -- Year}{City, State}
+\begin{itemize}
+    \item Notable improvement or result you were responsible for
+    \item A skill or quality demonstrated consistently in this role
+\end{itemize}
+
+\vspace{6pt}
+\entry{Organization Name --- Earlier Role}{Year -- Year}{City, State}
+\begin{itemize}
+    \item Foundational experience relevant to your professional path
+\end{itemize}
+
+\section{Education}
+\entry{University Name --- B.S. in Your Major}{Month Year -- Month Year}{City, State}
+
+\section{Skills}
+Core Skill One \textbullet{} Core Skill Two \textbullet{} Core Skill Three \textbullet{} Tool One \textbullet{} Tool Two \textbullet{} Programming Language \textbullet{} Methodology \textbullet{} Communication
+
+\section{Certifications}
+{\bfseries Certification Name} --- Issuing Organization, Year
+
+\end{document}

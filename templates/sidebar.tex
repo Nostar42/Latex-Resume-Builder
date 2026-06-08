@@ -1,0 +1,112 @@
+% !TEMPLATE: Sidebar Two-Tone
+\documentclass[10pt, letterpaper]{article}
+
+\usepackage[margin=0.5in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fontawesome5}
+
+\definecolor{accent}{HTML}{0E7490}
+\definecolor{sidebar}{HTML}{EEF4F6}
+\definecolor{ink}{HTML}{222222}
+
+\hypersetup{colorlinks=true, urlcolor=accent, linkcolor=accent}
+\color{ink}
+\setlength{\parindent}{0pt}
+\pagestyle{empty}
+\setlist[itemize]{leftmargin=1.1em, itemsep=2pt, topsep=2pt, parsep=0pt}
+
+% Main-column section heading
+\titleformat{\section}
+    {\large\bfseries\color{accent}}{}{0em}{}
+    [{\color{accent!40}\titlerule[1pt]}]
+\titlespacing{\section}{0pt}{8pt}{4pt}
+
+% Sidebar heading
+\newcommand{\sidehead}[1]{\vspace{10pt}{\bfseries\color{accent}\uppercase{#1}}\\[3pt]{\color{accent!40}\hrule height 1pt}\vspace{5pt}}
+
+% Main experience entry
+\newcommand{\expentry}[4]{%
+    {\bfseries #1}\hfill{\small #3}\\
+    {\color{accent}#2}\hfill{\small\itshape #4}\par\vspace{2pt}
+}
+
+\setlength{\fboxsep}{11pt}
+\newlength{\sidew}\setlength{\sidew}{0.31\textwidth}
+\newlength{\mainw}\setlength{\mainw}{0.60\textwidth}
+
+\begin{document}
+
+\noindent
+% ---------- SIDEBAR (full-height tinted column) ----------
+\colorbox{sidebar}{%
+\begin{minipage}[t][\dimexpr\textheight-2\fboxsep-\topskip\relax][t]{\sidew}
+    {\bfseries\large\color{accent} FIRST LAST}\\[1pt]
+    {\small Job Title}
+
+    \sidehead{Contact}
+    {\small
+    \faEnvelope~email@example.com\\[3pt]
+    \faPhone~+1 (555) 123-4567\\[3pt]
+    \faMapMarker*~City, State\\[3pt]
+    \faLinkedin~in/username\\[3pt]
+    \faGithub~username}
+
+    \sidehead{Skills}
+    {\small
+    \begin{itemize}
+        \item Core Skill One
+        \item Core Skill Two
+        \item Core Skill Three
+        \item Tool One, Tool Two
+        \item Programming Language
+    \end{itemize}}
+
+    \sidehead{Education}
+    {\small
+    {\bfseries University Name}\\
+    B.S. in Your Major\\
+    Month Year -- Month Year\\[5pt]
+    {\bfseries College Name}\\
+    Associate Degree\\
+    Month Year -- Month Year}
+
+    \sidehead{Languages}
+    {\small Language One --- Fluent\\[3pt]
+    Language Two --- Conversational}
+\end{minipage}}%
+\hfill
+% ---------- MAIN COLUMN ----------
+\begin{minipage}[t]{\mainw}
+    \section{PROFILE}
+    Results-driven professional with several years of experience in your field. Skilled at turning complex problems into clear, effective solutions and collaborating across teams to deliver high-quality results on time.
+
+    \section{EXPERIENCE}
+    \expentry{Job Title}{Company Name}{Year -- Present}{City, State}
+    \begin{itemize}
+        \item Key accomplishment with a measurable result or business impact
+        \item Core responsibility performed using relevant tools and methods
+        \item Collaboration with cross-functional teams and stakeholders
+        \item Project or initiative you led or meaningfully contributed to
+    \end{itemize}
+    \vspace{6pt}
+    \expentry{Previous Job Title}{Company Name}{Year -- Year}{City, State}
+    \begin{itemize}
+        \item Notable improvement or outcome you were responsible for
+        \item Another responsibility or skill demonstrated in the role
+    \end{itemize}
+    \vspace{6pt}
+    \expentry{Earlier Role}{Organization Name}{Year -- Year}{City, State}
+    \begin{itemize}
+        \item Foundational experience relevant to your career path
+    \end{itemize}
+
+    \section{CERTIFICATIONS}
+    {\bfseries Certification Name} --- Issuing Organization \hfill {\small Year}\\
+    {\bfseries Second Certification} --- Issuing Organization \hfill {\small Year}
+\end{minipage}
+
+\end{document}

@@ -1,0 +1,85 @@
+% !TEMPLATE: Timeline Professional
+\documentclass[10pt, letterpaper]{article}
+
+\usepackage[margin=0.6in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fontawesome5}
+\usepackage{parskip}
+
+\definecolor{accent}{HTML}{065F46}
+\definecolor{ink}{HTML}{1F2937}
+
+\hypersetup{colorlinks=true, urlcolor=accent, linkcolor=accent}
+\color{ink}
+\setlength{\parindent}{0pt}
+\pagestyle{empty}
+\setlist[itemize]{leftmargin=1.1em, itemsep=1pt, topsep=2pt, parsep=0pt}
+
+\titleformat{\section}
+    {\large\bfseries\color{accent}}{}{0em}{}
+    [{\color{accent!35}\titlerule[1pt]}]
+\titlespacing{\section}{0pt}{10pt}{5pt}
+
+% Timeline entry: dates | marker | content
+\newcommand{\tlentry}[5]{%
+    \noindent
+    \begin{minipage}[t]{0.15\textwidth}\raggedleft\small\color{gray!75} #1\end{minipage}%
+    \hspace{6pt}%
+    \begin{minipage}[t]{0.02\textwidth}{\color{accent}\rule[0.2ex]{6pt}{6pt}}\end{minipage}%
+    \hspace{8pt}%
+    \begin{minipage}[t]{0.70\textwidth}%
+        {\bfseries #2}\hfill{\small\itshape #4}\\
+        {\color{accent}#3}\\[2pt]
+        #5
+    \end{minipage}%
+    \par\vspace{8pt}
+}
+
+\begin{document}
+
+% --- HEADER BAR ---
+{\setlength{\fboxsep}{12pt}%
+\noindent\colorbox{accent}{%
+\begin{minipage}{\dimexpr\textwidth-2\fboxsep\relax}
+    \centering\color{white}
+    {\fontsize{25}{29}\bfseries FIRST LAST}\\[3pt]
+    {\large Job Title \textbullet{} Professional Field}\\[5pt]
+    {\small
+    \faEnvelope~email@example.com \quad
+    \faPhone~+1 (555) 123-4567 \quad
+    \faMapMarker*~City, State \quad
+    \faLinkedin~in/username}
+\end{minipage}}}
+
+\section{SUMMARY}
+Results-driven professional with several years of experience delivering high-quality work in your field. Combines strong technical ability with clear communication and a track record of dependable, collaborative results.
+
+\section{EXPERIENCE}
+\tlentry{Year -- Present}{Job Title}{Company Name}{City, State}{%
+\begin{itemize}
+    \item Key accomplishment with a measurable result or impact
+    \item Core responsibility using relevant tools and methods
+    \item Cross-team collaboration on projects and initiatives
+\end{itemize}}
+\tlentry{Year -- Year}{Previous Job Title}{Company Name}{City, State}{%
+\begin{itemize}
+    \item Notable contribution or improvement you delivered
+    \item A skill or quality consistently demonstrated in the role
+\end{itemize}}
+\tlentry{Year -- Year}{Earlier Role}{Organization Name}{City, State}{%
+\begin{itemize}
+    \item Foundational experience relevant to your career path
+\end{itemize}}
+
+\section{EDUCATION}
+\tlentry{Month Year -- Month Year}{B.S. in Your Major}{University Name}{City, State}{%
+Relevant coursework, honors, or a brief note about your studies.}
+
+\section{SKILLS}
+Core Skill One \textbullet{} Core Skill Two \textbullet{} Core Skill Three \textbullet{} Tool One \textbullet{} Tool Two \textbullet{} Programming Language \textbullet{} Methodology \textbullet{} Communication
+
+\end{document}

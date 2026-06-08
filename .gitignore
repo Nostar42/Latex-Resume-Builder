@@ -1,0 +1,34 @@
+# ── Generated working directories ────────────────────────────────────────────
+temp/
+logs/
+
+# ── Personal resume data (keep your real info out of version control) ─────────
+*.local.tex
+
+# ── LaTeX build artifacts ─────────────────────────────────────────────────────
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# ── PDFs are generated, not sources ──────────────────────────────────────────
+*.pdf
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ── nginx Windows binary (downloaded by setup.ps1, not committed) ─────────────
+# Keep only our custom nginx.conf; exclude the downloaded Windows binary/extras.
+nginx/*
+!nginx/nginx.conf
+
+# ── IDE / editor ──────────────────────────────────────────────────────────────
+.claude/
+.vscode/
+.idea/

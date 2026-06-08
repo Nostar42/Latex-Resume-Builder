@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resume Builder</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0e0e10; --panel: #17171a; --line: #28282d;
+      --text: #e8e8ea; --muted: #8a8a92; --accent: #2563eb; --accent2: #3b82f6;
+      --good: #4ade80; --bad: #f87171;
+    }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg); color: var(--text);
+      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 16px; background: var(--panel);
+      border-bottom: 1px solid var(--line); flex-shrink: 0;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex-shrink: 0; }
+    header h1 { font-size: 14px; font-weight: 600; letter-spacing: .3px; }
+    header .spacer { flex: 1; }
+    .btn {
+      padding: 5px 11px; border: 1px solid var(--line); border-radius: 6px;
+      background: #1f1f24; color: #cfcfd4; font-size: 12px; cursor: pointer;
+      transition: background .12s, color .12s, border-color .12s; white-space: nowrap;
+    }
+    .btn:hover { background: #26262c; color: #fff; }
+    .btn:disabled { opacity: .45; cursor: default; }
+    .btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+
+    /* ── Main split ── */
+    .main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+    #pdf-wrap { position: relative; height: 62vh; background: #5a5a5a; flex-shrink: 0; }
+    #pdf { width: 100%; height: 100%; border: none; display: block; }
+    #pdf-loading {
+      position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 12px; background: rgba(14,14,16,.82); color: var(--muted);
+      font-size: 13px; z-index: 5; backdrop-filter: blur(2px);
+    }
+    #pdf-loading.show { display: flex; }
+    .spinner {
+      width: 26px; height: 26px; border: 3px solid #333; border-top-color: var(--accent2);
+      border-radius: 50%; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Splitter ── */
+    .splitter {
+      height: 7px; background: var(--panel); border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line); cursor: row-resize; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .splitter::after { content: ""; width: 36px; height: 3px; border-radius: 2px; background: #3a3a42; }
+    .splitter:hover::after { background: var(--accent2); }
+
+    /* ── Chat ── */
+    #chat { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+    .messages {
+      flex: 1; overflow-y: auto; padding: 14px 16px;
+      display: flex; flex-direction: column; gap: 9px;
+    }
+    .messages::-webkit-scrollbar { width: 5px; }
+    .messages::-webkit-scrollbar-thumb { background: #2c2c33; border-radius: 3px; }
+    .msg {
+      max-width: 82%; padding: 9px 13px; border-radius: 11px; font-size: 13.5px;
+      line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+    }
+    .msg.user { background: var(--accent); color: #fff; align-self: flex-end; border-bottom-right-radius: 3px; }
+    .msg.assistant { background: #1f1f24; color: var(--text); align-self: flex-start; border-bottom-left-radius: 3px; }
+    .msg.notice { background: transparent; color: var(--good); font-size: 11.5px; align-self: center; padding: 2px 8px; }
+    .msg.err { background: transparent; color: var(--bad); font-size: 11.5px; align-self: center; padding: 2px 8px; max-width: 95%; }
+
+    .typing { display: none; align-self: flex-start; gap: 4px; padding: 11px 14px; background: #1f1f24; border-radius: 11px; border-bottom-left-radius: 3px; }
+    .typing.show { display: flex; }
+    .typing span { width: 5px; height: 5px; background: var(--muted); border-radius: 50%; animation: blink 1.2s infinite; }
+    .typing span:nth-child(2) { animation-delay: .2s; }
+    .typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 0%,80%,100% { opacity: .3; transform: translateY(0);} 40% { opacity: 1; transform: translateY(-3px);} }
+
+    .input-row {
+      display: flex; gap: 8px; padding: 10px 12px; background: var(--panel);
+      border-top: 1px solid var(--line); align-items: flex-end; flex-shrink: 0;
+    }
+    #chat-input {
+      flex: 1; background: #1f1f24; border: 1px solid var(--line); border-radius: 9px;
+      padding: 10px 13px; color: var(--text); font-family: inherit; font-size: 13.5px;
+      resize: none; outline: none; min-height: 42px; max-height: 130px; line-height: 1.45;
+    }
+    #chat-input:focus { border-color: var(--accent); }
+    #send { padding: 10px 18px; flex-shrink: 0; background: var(--accent); border-color: var(--accent); color: #fff; }
+    #send:hover { background: var(--accent2); }
+
+    /* ── Source drawer ── */
+    .drawer-back { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; z-index: 20; }
+    .drawer-back.show { display: block; }
+    .drawer {
+      position: fixed; top: 0; right: 0; height: 100%; width: min(640px, 92vw);
+      background: var(--panel); border-left: 1px solid var(--line); z-index: 21;
+      transform: translateX(100%); transition: transform .22s ease;
+      display: flex; flex-direction: column;
+    }
+    .drawer.show { transform: translateX(0); }
+    .drawer-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .drawer-head h2 { font-size: 13px; font-weight: 600; }
+    .drawer-head .spacer { flex: 1; }
+    #source-edit {
+      flex: 1; width: 100%; border: none; outline: none; resize: none;
+      padding: 14px 16px; background: #131316; color: #d4d4d4;
+      font-family: 'Consolas','Fira Mono',monospace; font-size: 12.5px; line-height: 1.6; tab-size: 4;
+    }
+    .drawer-foot { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--line); }
+    #source-status { flex: 1; font-size: 11.5px; color: var(--muted); }
+    #source-status.err { color: var(--bad); white-space: pre-wrap; }
+
+    /* ── Accent header button ── */
+    .btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.accent:hover { background: var(--accent2); color: #fff; }
+
+    /* ── Model picker ── */
+    .model-select {
+      background: #1f1f24; color: #cfcfd4; border: 1px solid var(--line);
+      border-radius: 6px; padding: 5px 8px; font-size: 12px; max-width: 210px;
+      cursor: pointer; outline: none;
+    }
+    .model-select:hover { background: #26262c; color: #fff; }
+    .model-select:focus { border-color: var(--accent); }
+    .model-select:disabled { opacity: .5; cursor: default; }
+
+    /* ── Templates modal ── */
+    .tmpl-modal {
+      position: fixed; z-index: 22; top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(.96);
+      width: min(680px, 92vw); max-height: 86vh; background: var(--panel);
+      border: 1px solid var(--line); border-radius: 14px; display: none; flex-direction: column;
+      opacity: 0; transition: opacity .16s, transform .16s; overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    .tmpl-modal.show { display: flex; opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    .tmpl-head { display: flex; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+    .tmpl-head h2 { font-size: 14px; font-weight: 600; flex: 1; }
+    .tmpl-list { padding: 16px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tmpl-card {
+      text-align: left; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px;
+      background: #1f1f24; color: var(--text); cursor: pointer; display: flex; flex-direction: column; gap: 3px;
+      transition: border-color .12s, background .12s;
+    }
+    .tmpl-card:hover { border-color: var(--accent2); background: #24242b; }
+    .tmpl-card.current { border-color: var(--accent); }
+    .tmpl-name { font-size: 14px; font-weight: 600; }
+    .tmpl-badge { align-self: flex-start; margin-top: 3px; font-size: 10px; color: var(--good);
+      border: 1px solid var(--good); border-radius: 4px; padding: 0 5px; }
+    .tmpl-foot { padding: 10px 18px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="dot"></div>
+  <h1>Resume Builder</h1>
+  <div class="spacer"></div>
+  <select id="model-select" class="model-select" onchange="changeModel(this.value)" title="Local AI model"></select>
+  <button class="btn accent" onclick="openTemplates()">Templates</button>
+  <button class="btn" onclick="openSource()">LaTeX Source</button>
+  <button class="btn danger" onclick="resetMaster()">Reset</button>
+  <a class="btn" href="/api/pdf?download=1" download>Download PDF</a>
+</header>
+
+<div class="main">
+  <div id="pdf-wrap">
+    <iframe id="pdf" title="Resume PDF"></iframe>
+    <div id="pdf-loading"><div class="spinner"></div><span id="pdf-loading-text">Compiling…</span></div>
+  </div>
+
+  <div class="splitter" id="splitter" title="Drag to resize"></div>
+
+  <div id="chat">
+    <div class="messages" id="messages">
+      <div class="msg assistant">Hi! Pick a template above, then tell me what to change and the PDF updates. Try:
+
+• "Set my name to Jordan Lee and title to Product Designer"
+• "Fill in my job at Acme Corp as a Software Engineer, 2021–present"
+• "Move the Skills section above Education"
+• "Make my name bigger and the accent color teal"</div>
+      <div class="typing" id="typing"><span></span><span></span><span></span></div>
+    </div>
+    <div class="input-row">
+      <textarea id="chat-input" placeholder="Tell the AI what to change…" rows="1"
+        onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      <button class="btn" id="send" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- Source drawer -->
+<div class="drawer-back" id="drawer-back" onclick="closeSource()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h2>working.tex</h2>
+    <div class="spacer"></div>
+    <button class="btn" onclick="closeSource()">Close</button>
+  </div>
+  <textarea id="source-edit" spellcheck="false"></textarea>
+  <div class="drawer-foot">
+    <span id="source-status">Edits here recompile the PDF directly.</span>
+    <button class="btn" id="recompile" onclick="recompileSource()">Recompile</button>
+  </div>
+</div>
+
+<!-- Templates modal -->
+<div class="drawer-back" id="tmpl-back" onclick="showTemplates(false)"></div>
+<div class="tmpl-modal" id="tmpl-modal">
+  <div class="tmpl-head">
+    <h2>Choose a template</h2>
+    <button class="btn" onclick="showTemplates(false)">Close</button>
+  </div>
+  <div class="tmpl-list" id="tmpl-list"></div>
+  <div class="tmpl-foot">Loading a template replaces your current working resume. Then use the chat to fill in your details.</div>
+</div>
+
+<script>
+  let history = [];
+  let busy = false;
+
+  // ── PDF ──
+  function reloadPdf() {
+    document.getElementById('pdf').src = '/api/pdf?t=' + Date.now() + '#toolbar=0';
+  }
+  function showLoading(on, text) {
+    const el = document.getElementById('pdf-loading');
+    if (text) document.getElementById('pdf-loading-text').textContent = text;
+    el.classList.toggle('show', on);
+  }
+  document.getElementById('pdf').addEventListener('load', () => showLoading(false));
+
+  // ── Chat ──
+  async function sendMessage() {
+    if (busy) return;
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    busy = true;
+    input.value = ''; autoResize(input);
+    document.getElementById('send').disabled = true;
+    addMsg('user', text);
+    history.push({ role: 'user', content: text });
+    showTyping(true);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history.slice(-20) }),
+      });
+      if (res.status === 429) {
+        showTyping(false);
+        addMsg('err', '⚠ Too many requests — please wait a moment before trying again.');
+        return;
+      }
+      const data = await res.json();
+      showTyping(false);
+
+      if (data.error) {
+        addMsg('err', '⚠ ' + data.error);
+      } else {
+        addMsg('assistant', data.message);
+        history.push({ role: 'assistant', content: data.message });
+        if (data.updated) {
+          addMsg('notice', '✓ PDF updated');
+          showLoading(true, 'Refreshing…');
+          reloadPdf();
+        }
+      }
+    } catch (err) {
+      showTyping(false);
+      addMsg('err', '⚠ Connection error: ' + err.message);
+    } finally {
+      busy = false;
+      document.getElementById('send').disabled = false;
+      document.getElementById('chat-input').focus();
+    }
+  }
+
+  function scrollToBottom() {
+    const b = document.getElementById('messages');
+    b.scrollTop = b.scrollHeight;
+  }
+  // FIX #12: always insert before the typing indicator so the bubble never
+  // ends up sandwiched between messages in the DOM.
+  function addMsg(type, text) {
+    const box    = document.getElementById('messages');
+    const typing = document.getElementById('typing');
+    const div    = document.createElement('div');
+    div.className = 'msg ' + type;
+    div.textContent = text;
+    box.insertBefore(div, typing);
+    scrollToBottom();
+  }
+  function showTyping(on) {
+    const el = document.getElementById('typing');
+    if (on) {
+      document.getElementById('messages').appendChild(el); // anchor at end
+      el.classList.add('show');
+      scrollToBottom();
+    } else {
+      el.classList.remove('show');
+    }
+  }
+  function handleKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
+  function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 130) + 'px'; }
+
+  // ── Header actions ──
+  // FIX #7: wrap in try/catch so a network error doesn't leave the spinner on.
+  async function resetMaster() {
+    if (!confirm('Discard all edits and reload the original template?')) return;
+    showLoading(true, 'Resetting…');
+    try {
+      const res  = await fetch('/api/reset', { method: 'POST' });
+      const data = await res.json();
+      reloadPdf();
+      addMsg('notice', data.ok ? '↺ Reverted to the original template' : '⚠ ' + (data.error || 'Reset failed'));
+    } catch (err) {
+      showLoading(false);
+      addMsg('err', '⚠ Reset failed: ' + err.message);
+    }
+  }
+
+  // ── Templates ──
+  function showTemplates(on) {
+    document.getElementById('tmpl-back').classList.toggle('show', on);
+    document.getElementById('tmpl-modal').classList.toggle('show', on);
+  }
+  // FIX #9: wrap in try/catch so a network error shows a message.
+  async function openTemplates() {
+    try {
+      const res  = await fetch('/api/templates');
+      const data = await res.json();
+      const list = document.getElementById('tmpl-list');
+      list.innerHTML = '';
+      (data.templates || []).forEach(t => {
+        const card = document.createElement('button');
+        card.className = 'tmpl-card' + (t.name === data.current ? ' current' : '');
+        const name = document.createElement('span');
+        name.className = 'tmpl-name';
+        name.textContent = t.label;
+        card.appendChild(name);
+        if (t.name === data.current) {
+          const badge = document.createElement('span');
+          badge.className = 'tmpl-badge';
+          badge.textContent = 'current';
+          card.appendChild(badge);
+        }
+        card.onclick = () => loadTemplate(t.name, t.label);
+        list.appendChild(card);
+      });
+      showTemplates(true);
+    } catch (err) {
+      addMsg('err', '⚠ Could not load templates: ' + err.message);
+    }
+  }
+  // FIX #8: use finally to guarantee spinner is dismissed on any outcome.
+  async function loadTemplate(name, label) {
+    if (!confirm('Load the "' + label + '" template? This replaces your current working resume.')) return;
+    showTemplates(false);
+    showLoading(true, 'Loading template…');
+    try {
+      const res  = await fetch('/api/template', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (res.status === 429) {
+        showLoading(false);
+        addMsg('err', '⚠ Too many requests — please wait a moment before switching templates.');
+      } else {
+        const data = await res.json();
+        reloadPdf();
+        addMsg('notice', data.ok ? '✓ Loaded template: ' + label : '⚠ ' + (data.error || 'Failed to load template'));
+      }
+    } catch (err) {
+      showLoading(false);
+      addMsg('err', '⚠ Template load failed: ' + err.message);
+    }
+  }
+
+  // ── Source drawer ──
+  // FIX #8: wrap in try/catch.
+  async function openSource() {
+    try {
+      const res  = await fetch('/api/source');
+      const data = await res.json();
+      document.getElementById('source-edit').value = data.content || '';
+      setSourceStatus('Edits here recompile the PDF directly.', false);
+      document.getElementById('drawer-back').classList.add('show');
+      document.getElementById('drawer').classList.add('show');
+    } catch (err) {
+      addMsg('err', '⚠ Could not load source: ' + err.message);
+    }
+  }
+  function closeSource() {
+    document.getElementById('drawer-back').classList.remove('show');
+    document.getElementById('drawer').classList.remove('show');
+  }
+  // FIX #6: use finally so the button is always re-enabled and spinner always
+  // dismissed, even when fetch() throws (network error, nginx down, etc.).
+  async function recompileSource() {
+    const content = document.getElementById('source-edit').value;
+    const btn = document.getElementById('recompile');
+    btn.disabled = true;
+    setSourceStatus('Compiling…', false);
+    showLoading(true, 'Compiling…');
+    try {
+      const res  = await fetch('/api/source', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (res.status === 429) {
+        setSourceStatus('Too many requests — please wait a moment.', true);
+        showLoading(false);
+      } else {
+        const data = await res.json();
+        if (data.ok) {
+          setSourceStatus('Compiled ✓', false);
+          reloadPdf();
+        } else {
+          setSourceStatus('Compile error (kept last good PDF):\n' + (data.error || ''), true);
+          showLoading(false);
+        }
+      }
+    } catch (err) {
+      setSourceStatus('Network error: ' + err.message, true);
+      showLoading(false);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  function setSourceStatus(text, isErr) {
+    const el = document.getElementById('source-status');
+    el.textContent = text;
+    el.classList.toggle('err', !!isErr);
+  }
+
+  // ── Model picker ──
+  // Full catalog, weak -> strong. star=true marks the best 5.
+  const MODEL_CATALOG = [
+    { name: 'qwen2.5-coder:0.5b', label: 'Qwen2.5-Coder 0.5B', star: false },
+    { name: 'qwen2.5-coder:1.5b', label: 'Qwen2.5-Coder 1.5B', star: false },
+    { name: 'qwen2.5-coder:3b',   label: 'Qwen2.5-Coder 3B',   star: false },
+    { name: 'qwen2.5-coder:7b',   label: 'Qwen2.5-Coder 7B',   star: false },
+    { name: 'qwen2.5-coder:14b',  label: 'Qwen2.5-Coder 14B',  star: true  },
+    { name: 'qwen2.5-coder:32b',  label: 'Qwen2.5-Coder 32B',  star: true  },
+  ];
+
+  async function loadModels() {
+    const sel = document.getElementById('model-select');
+    try {
+      const res = await fetch('/api/models');
+      const data = await res.json();
+      const installed = new Set(data.models || []);
+      const current = data.current || '';
+      sel.innerHTML = '';
+      sel.disabled = false;
+
+      MODEL_CATALOG.forEach(m => {
+        const isInstalled = installed.has(m.name);
+        const o = document.createElement('option');
+        o.value = m.name;
+        o.textContent = (m.star ? '★ ' : '  ') + m.label + (isInstalled ? '' : '  — not installed');
+        o.disabled = !isInstalled;
+        if (m.name === current) o.selected = true;
+        sel.appendChild(o);
+      });
+
+      // If the active model isn't in the catalog (e.g. set via OLLAMA_MODEL env var),
+      // add it as a selectable option so it isn't silently replaced on first interaction.
+      if (current && !MODEL_CATALOG.some(m => m.name === current)) {
+        const o = document.createElement('option');
+        o.value = current;
+        o.textContent = current + ' (custom)';
+        o.selected = true;
+        sel.appendChild(o);
+      }
+
+      // If Ollama is down entirely, show a single placeholder
+      if (!data.running) {
+        sel.innerHTML = '<option disabled selected>Ollama not running</option>';
+        sel.disabled = true;
+      }
+    } catch (e) {
+      sel.innerHTML = '<option disabled selected>model unavailable</option>';
+      sel.disabled = true;
+    }
+  }
+  // FIX #9: wrap in try/catch.
+  async function changeModel(name) {
+    try {
+      const res  = await fetch('/api/model', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (data.ok) { addMsg('notice', '✓ Model set to ' + name); }
+      else { addMsg('err', '⚠ ' + (data.error || 'Could not switch model')); loadModels(); }
+    } catch (err) {
+      addMsg('err', '⚠ Model switch failed: ' + err.message);
+      loadModels();
+    }
+  }
+
+  // ── Draggable splitter ──
+  (function () {
+    const splitter = document.getElementById('splitter');
+    const pdfWrap = document.getElementById('pdf-wrap');
+    const main = document.querySelector('.main');
+    let dragging = false;
+    splitter.addEventListener('mousedown', () => { dragging = true; document.body.style.cursor = 'row-resize'; document.getElementById('pdf').style.pointerEvents = 'none'; });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const rect = main.getBoundingClientRect();
+      let h = e.clientY - rect.top;
+      h = Math.max(140, Math.min(rect.height - 160, h));
+      pdfWrap.style.height = h + 'px';
+    });
+    window.addEventListener('mouseup', () => { dragging = false; document.body.style.cursor = ''; document.getElementById('pdf').style.pointerEvents = ''; });
+  })();
+
+  // ── Init ──
+  reloadPdf();
+  loadModels();
+</script>
+</body>
+</html>
