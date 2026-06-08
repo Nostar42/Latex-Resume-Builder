@@ -902,10 +902,10 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
 
         latex = _strip_fences(raw)
 
-        # Sanity-check: must look like LaTeX
-        if "\\documentclass" not in latex and "\\begin{document}" not in latex:
+        # Require BOTH markers — missing either means the document won't compile.
+        if "\\documentclass" not in latex or "\\begin{document}" not in latex:
             return _finish(
-                {"message": ("The model didn't return LaTeX. "
+                {"message": ("The model didn't return complete LaTeX. "
                              "Make sure you're using a vision-capable model "
                              "(llava, minicpm-v, moondream) and try again.\n\n"
                              + raw[:500]),
@@ -956,7 +956,18 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
     # (or refines the existing one on follow-up messages).
     # ══════════════════════════════════════════════════════════════════════
     if mode == "math":
-        math_system = _MATH_SYS.format(document=document)
+        # Bootstrap: when there's no document yet, seed the context with the
+        # math template so the model has a complete compilable skeleton to
+        # reference.  This prevents "Missing \begin{document}" errors that
+        # occur when the model anchors on an empty context and omits the
+        # LaTeX preamble.
+        math_doc = document.strip()
+        if not math_doc:
+            tmpl_path = TEMPLATES_DIR / "math.tex"
+            if tmpl_path.exists():
+                math_doc = tmpl_path.read_text(encoding="utf-8")
+
+        math_system = _MATH_SYS.format(document=math_doc)
         try:
             raw, llm_perf = await _llm(math_system, messages)
         except Exception:
@@ -970,10 +981,15 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
 
         latex = _strip_fences(raw)
 
-        # If the model returned an explanation instead of LaTeX, show it as chat
-        if "\\documentclass" not in latex and "\\begin{document}" not in latex:
+        # Require BOTH markers — a document missing either will fail to compile.
+        # Previously used `and` so a response with \documentclass but no
+        # \begin{document} would silently pass and produce a pdflatex error.
+        if "\\documentclass" not in latex or "\\begin{document}" not in latex:
             return _finish(
-                {"message": latex, "updated": False, "error": None},
+                {"message": ("The model returned an incomplete LaTeX document. "
+                             "Try rephrasing the problem or switching to a "
+                             "different model.\n\n" + latex[:400]),
+                 "updated": False, "error": None},
                 edit_ok=False, compile_ok=None,
             )
 
