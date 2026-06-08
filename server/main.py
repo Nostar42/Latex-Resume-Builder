@@ -10,6 +10,7 @@ AI calls and compile jobs can overlap without blocking each other.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import shutil
@@ -36,6 +37,7 @@ TEMP_DIR      = BASE_DIR / "temp"
 INDEX_PATH    = BASE_DIR / "index.html"
 SESSIONS_DIR  = TEMP_DIR / "sessions"
 MODEL_FILE    = TEMP_DIR / "model.txt"
+METRICS_FILE  = TEMP_DIR / "metrics.json"
 
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -82,18 +84,45 @@ _rl_lock: asyncio.Lock          # initialised inside lifespan() on the running l
 
 # ---------------------------------------------------------------------------
 # Global AI performance metrics (all sessions combined).
-# Stored in memory only; cleared on server restart.  Capped at _METRICS_CAP
-# to bound memory use on long-running servers.
+# Persisted to temp/metrics.json so they survive server restarts.
+# Capped at _METRICS_CAP entries to bound file and memory size.
 # ---------------------------------------------------------------------------
-_METRICS_CAP = 500
+_METRICS_CAP  = 500
 _metrics: list[dict] = []
+_metrics_lock = threading.Lock()   # guards both the list and file writes
+
+
+def _load_metrics() -> list[dict]:
+    """Read persisted metrics from disk at startup. Returns [] on any error."""
+    try:
+        if METRICS_FILE.exists():
+            data = json.loads(METRICS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                # Honour the cap even if the file was written by an older version.
+                return data[-_METRICS_CAP:]
+    except Exception as exc:
+        print(f"  WARN metrics load: {exc}")
+    return []
+
+
+def _save_metrics_locked() -> None:
+    """Write _metrics to disk. Caller must hold _metrics_lock."""
+    try:
+        METRICS_FILE.write_text(
+            json.dumps(_metrics, separators=(",", ":")),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        print(f"  WARN metrics save: {exc}")
 
 
 def _record_metric(entry: dict) -> None:
     global _metrics
-    _metrics.append(entry)
-    if len(_metrics) > _METRICS_CAP:
-        _metrics = _metrics[-_METRICS_CAP:]
+    with _metrics_lock:
+        _metrics.append(entry)
+        if len(_metrics) > _METRICS_CAP:
+            _metrics = _metrics[-_METRICS_CAP:]
+        _save_metrics_locked()
 
 _RL_WINDOW  = 60.0   # sliding window width in seconds
 _RL_CHAT    = 10
@@ -197,9 +226,11 @@ _index_html: bytes = b""              # cached at startup (skipped when DEV=1)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── startup ──────────────────────────────────────────────────────────────
-    global _sem, _index_html, _rl_lock
+    global _sem, _index_html, _rl_lock, _metrics
     _sem     = asyncio.Semaphore(MAX_COMPILES)
     _rl_lock = asyncio.Lock()   # must be created on the running event loop
+    _metrics = _load_metrics()  # restore persisted metrics from temp/metrics.json
+    print(f"  Metrics   : {len(_metrics)} entries loaded from disk")
     if not DEV_MODE:
         _index_html = INDEX_PATH.read_bytes()   # cache once; re-read per-req in DEV mode
     print(f"  pdflatex  : {PDFLATEX}")
@@ -798,7 +829,8 @@ async def get_metrics(request: Request):
     """Return global AI performance metrics + aggregate summary (all sessions)."""
     if not await _rate_limit(request, _RL_API): return _too_many()
 
-    entries: list[dict] = _metrics
+    with _metrics_lock:
+        entries: list[dict] = list(_metrics)   # snapshot to avoid holding lock during aggregation
     if not entries:
         return JSONResponse({"entries": [], "summary": {}})
 
