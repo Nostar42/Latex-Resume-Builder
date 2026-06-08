@@ -451,18 +451,31 @@
   // Grouped catalog. family = optgroup label. star = recommended.
   const MODEL_CATALOG = [
     // Qwen2.5-Coder family
-    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:0.5b', label: 'Qwen2.5-Coder 0.5B', star: false },
-    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:1.5b', label: 'Qwen2.5-Coder 1.5B', star: false },
-    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:3b',   label: 'Qwen2.5-Coder 3B',   star: false },
-    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:7b',   label: 'Qwen2.5-Coder 7B',   star: false },
-    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:14b',  label: 'Qwen2.5-Coder 14B',  star: true  },
-    { family: 'Qwen2.5-Coder', name: 'qwen2.5-coder:32b',  label: 'Qwen2.5-Coder 32B',  star: true  },
+    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:0.5b', label: 'Qwen2.5-Coder 0.5B', star: false },
+    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:1.5b', label: 'Qwen2.5-Coder 1.5B', star: false },
+    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:3b',   label: 'Qwen2.5-Coder 3B',   star: false },
+    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:7b',   label: 'Qwen2.5-Coder 7B',   star: false },
+    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:14b',  label: 'Qwen2.5-Coder 14B',  star: true  },
+    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:32b',  label: 'Qwen2.5-Coder 32B',  star: true  },
+    // Microsoft Phi-4 family
+    { family: 'Microsoft Phi-4',  name: 'phi4-mini',           label: 'Phi-4 Mini 3.8B',    star: false },
+    { family: 'Microsoft Phi-4',  name: 'phi4',                label: 'Phi-4 14B',           star: true  },
+    // Mistral family
+    { family: 'Mistral',          name: 'mistral',             label: 'Mistral 7B',          star: false },
+    { family: 'Mistral',          name: 'mistral-small',       label: 'Mistral Small 22B',   star: true  },
+    // DeepSeek-R1 family
+    { family: 'DeepSeek-R1',      name: 'deepseek-r1:1.5b',   label: 'DeepSeek-R1 1.5B',   star: false },
+    { family: 'DeepSeek-R1',      name: 'deepseek-r1:7b',     label: 'DeepSeek-R1 7B',     star: false },
+    { family: 'DeepSeek-R1',      name: 'deepseek-r1:8b',     label: 'DeepSeek-R1 8B',     star: false },
+    { family: 'DeepSeek-R1',      name: 'deepseek-r1:14b',    label: 'DeepSeek-R1 14B',    star: true  },
+    { family: 'DeepSeek-R1',      name: 'deepseek-r1:32b',    label: 'DeepSeek-R1 32B',    star: true  },
+    { family: 'DeepSeek-R1',      name: 'deepseek-r1:70b',    label: 'DeepSeek-R1 70B',    star: true  },
     // Meta Llama 3.3 family
-    { family: 'Meta Llama 3.3', name: 'llama3.3',           label: 'Llama 3.3 70B',      star: true  },
+    { family: 'Meta Llama 3.3',   name: 'llama3.3',            label: 'Llama 3.3 70B',      star: true  },
     // Meta CodeLlama family
-    { family: 'Meta CodeLlama', name: 'codellama:7b',        label: 'CodeLlama 7B',        star: false },
-    { family: 'Meta CodeLlama', name: 'codellama:13b',       label: 'CodeLlama 13B',       star: false },
-    { family: 'Meta CodeLlama', name: 'codellama:34b',       label: 'CodeLlama 34B',       star: true  },
+    { family: 'Meta CodeLlama',   name: 'codellama:7b',        label: 'CodeLlama 7B',        star: false },
+    { family: 'Meta CodeLlama',   name: 'codellama:13b',       label: 'CodeLlama 13B',       star: false },
+    { family: 'Meta CodeLlama',   name: 'codellama:34b',       label: 'CodeLlama 34B',       star: true  },
   ];
 
   async function loadModels() {

@@ -53,7 +53,7 @@ winget install Ollama.Ollama
 
 Then pull at least one model. Pick based on your available RAM:
 
-**Qwen2.5-Coder** (best for code/LaTeX editing)
+**Qwen2.5-Coder** (best for code/LaTeX editing — recommended for this tool)
 
 | Model | Size on disk | RAM needed | Speed (CPU) |
 |-------|-------------|------------|-------------|
@@ -61,6 +61,31 @@ Then pull at least one model. Pick based on your available RAM:
 | `qwen2.5-coder:3b` | ~1.9 GB | ~4 GB | Fast |
 | `qwen2.5-coder:7b` | ~4.7 GB | ~8 GB | Moderate |
 | `qwen2.5-coder:14b` | ~9.0 GB | ~16 GB | Slow on CPU |
+
+**Microsoft Phi-4** (compact, strong reasoning)
+
+| Model | Size on disk | RAM needed | Speed (CPU) |
+|-------|-------------|------------|-------------|
+| `phi4-mini` | ~2.5 GB | ~4 GB | Fast |
+| `phi4` | ~9.1 GB | ~16 GB | Slow on CPU |
+
+**Mistral** (fast, general-purpose)
+
+| Model | Size on disk | RAM needed | Speed (CPU) |
+|-------|-------------|------------|-------------|
+| `mistral` | ~4.1 GB | ~8 GB | Moderate |
+| `mistral-small` | ~14 GB | ~24 GB | Slow on CPU |
+
+**DeepSeek-R1** (reasoning/chain-of-thought specialist)
+
+| Model | Size on disk | RAM needed | Speed (CPU) |
+|-------|-------------|------------|-------------|
+| `deepseek-r1:1.5b` | ~1.1 GB | ~2 GB | Very fast |
+| `deepseek-r1:7b` | ~4.7 GB | ~8 GB | Moderate |
+| `deepseek-r1:8b` | ~5.2 GB | ~8 GB | Moderate |
+| `deepseek-r1:14b` | ~9.0 GB | ~16 GB | Slow on CPU |
+| `deepseek-r1:32b` | ~20 GB | ~32 GB | Very slow; GPU recommended |
+| `deepseek-r1:70b` | ~43 GB | ~48 GB | GPU required |
 
 **Meta Llama 3.3** (general-purpose, strong reasoning)
 
