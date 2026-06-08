@@ -276,6 +276,10 @@
         <span class="mode-opt-label">📄 Resume Builder</span>
         <span class="mode-opt-desc">Edit LaTeX resumes with any text model</span>
       </button>
+      <button class="mode-option" data-mode="math" onclick="setMode('math')">
+        <span class="mode-opt-label">🧮 Math Solver</span>
+        <span class="mode-opt-desc">Type a problem — AI generates step-by-step LaTeX solution</span>
+      </button>
       <button class="mode-option" data-mode="image" onclick="setMode('image')">
         <span class="mode-opt-label">🖼️ Image → LaTeX PDF</span>
         <span class="mode-opt-desc">Upload a scan — vision AI recreates it as PDF</span>
@@ -433,7 +437,7 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
     showTyping(true);
 
     try {
-      const payload = { messages: history.slice(-20) };
+      const payload = { messages: history.slice(-20), mode: currentMode };
       if (img) payload.images = [img.base64];
 
       const res = await fetch('/api/chat', {
@@ -746,13 +750,24 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
                  'DeepSeek-R1', 'Meta Llama 3.3', 'Meta CodeLlama'],
       showTemplates: true,
       showAttach:    false,
+      placeholder: 'Describe a change to the resume…',
       welcome: 'Pick a template, then describe a change — the PDF updates instantly.\n\n• "Set my name to Jordan Lee, Software Engineer"\n• "Add a bullet: reduced deployment time by 40%"\n• "Move Skills above Education"\n• "Change the accent color to teal"',
+    },
+    math: {
+      label:    '🧮 Math Solver',
+      families: ['Qwen2.5-Coder', 'Microsoft Phi-4', 'Mistral',
+                 'DeepSeek-R1', 'Meta Llama 3.3', 'Meta CodeLlama'],
+      showTemplates: false,
+      showAttach:    false,
+      placeholder: 'Type a math problem… e.g. "Solve 2x² + 5x - 3 = 0"',
+      welcome: 'Type any math problem — the AI generates a full step-by-step LaTeX solution compiled to PDF.\n\nExamples:\n• "Solve 2x² + 5x - 3 = 0"\n• "Find the derivative of f(x) = x³ sin(x)"\n• "Integrate ∫ x·eˣ dx using integration by parts"\n• "Prove that √2 is irrational"\n• "Solve the system: 3x + 2y = 12,  x − y = 1"\n\nTip: DeepSeek-R1 is a reasoning model — great for multi-step problems.',
     },
     image: {
       label:    '🖼️ Image → LaTeX PDF',
       families: ['Vision / OCR'],
       showTemplates: false,
       showAttach:    true,
+      placeholder: 'Attach an image, then press Send to recreate it as LaTeX…',
       welcome: 'Attach any image or scan of a document — the vision model recreates it as LaTeX and compiles it to PDF.\n\n① Click 📎 to attach your image\n② Hit Send (or press Enter)\n③ PDF appears in seconds\n\nAfter creation, keep chatting to refine the document.',
     },
   };
@@ -789,6 +804,7 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
       attachBtn.style.display = cfg.showAttach ? '' : 'none';
       attachBtn.classList.toggle('accent', cfg.showAttach);
     }
+    document.getElementById('chat-input').placeholder = cfg.placeholder || 'Describe a change…';
 
     // Reload model picker filtered to this mode's families
     loadModels();
@@ -807,6 +823,7 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
       attachBtn.style.display = cfg.showAttach ? '' : 'none';
       attachBtn.classList.toggle('accent', cfg.showAttach);
     }
+    document.getElementById('chat-input').placeholder = cfg.placeholder || 'Describe a change…';
   }
 
   // ── Model picker ──

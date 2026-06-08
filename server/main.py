@@ -520,6 +520,37 @@ document.tex:
 pdflatex error:
 {error}"""
 
+# Prompt used when mode=="math": generate a complete step-by-step solution document.
+# The model outputs the whole LaTeX file (no SEARCH/REPLACE).
+_MATH_SYS = """\
+You are a mathematics tutor and LaTeX expert.
+
+The user will give you a math problem to solve, or ask you to extend/refine an existing solution.
+Output a COMPLETE, compilable LaTeX document containing the full step-by-step working.
+
+Document structure:
+1. Problem statement in bold at the top
+2. Step-by-step solution — number every step, explain each one in plain English
+3. Use align or align* for multi-line equation chains
+4. Final answer clearly boxed with \\boxed{{}}
+
+LaTeX requirements — use exactly these packages:
+\\documentclass[12pt,a4paper]{{article}}
+\\usepackage[margin=2.5cm]{{geometry}}
+\\usepackage[T1]{{fontenc}}
+\\usepackage[utf8]{{inputenc}}
+\\usepackage{{amsmath,amssymb,amsthm}}
+\\usepackage{{parskip}}
+
+Rules:
+- Output ONLY raw LaTeX, starting with \\documentclass and ending with \\end{{document}}.
+- Do NOT wrap in markdown code fences.
+- Do NOT add any text before \\documentclass.
+- If the user refines or extends, output the FULL updated document.
+
+Current document (context for refinements — empty on first problem):
+{{document}}"""
+
 # Strips ```latex ... ``` or ``` ... ``` fences that vision models sometimes add.
 _FENCE_RX = re.compile(r"^```[a-zA-Z]*\n(.*?)\n```\s*$", re.DOTALL)
 
@@ -737,7 +768,8 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
 
     body     = await request.json()
     messages = body.get("messages", [])[-20:]
-    images   = body.get("images") or []   # list of base64 strings from image upload
+    images   = body.get("images") or []          # base64 strings from image upload
+    mode     = body.get("mode", "resume")        # "resume" | "math" | "image"
 
     # Guard against oversized image payloads
     total_img_bytes = sum(len(b) for b in images)
@@ -837,6 +869,72 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
         return _finish(
             {"message": (f"Generated LaTeX from image but it wouldn't compile. "
                          f"Try a different vision model or edit the source manually.\n\n{c['error']}"),
+             "updated": False, "error": None},
+            edit_ok=True, compile_ok=False,
+        )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # MATH SOLVER MODE
+    # Generates a complete step-by-step LaTeX solution document from scratch
+    # (or refines the existing one on follow-up messages).
+    # ══════════════════════════════════════════════════════════════════════
+    if mode == "math":
+        math_system = _MATH_SYS.format(document=document)
+        try:
+            raw, llm_perf = await _llm(math_system, messages)
+        except Exception:
+            model = _active_model()
+            return _resp(
+                {"message": "", "updated": False,
+                 "error": f"Can't reach the model at {LLM_BASE_URL}. "
+                          f"Is Ollama running? Try: ollama run {model}"},
+                sid, is_new, status=500,
+            )
+
+        latex = _strip_fences(raw)
+
+        # If the model returned an explanation instead of LaTeX, show it as chat
+        if "\\documentclass" not in latex and "\\begin{document}" not in latex:
+            return _finish(
+                {"message": latex, "updated": False, "error": None},
+                edit_ok=False, compile_ok=None,
+            )
+
+        tex.write_text(latex, encoding="utf-8")
+        c = await _compile(sid)
+
+        if c["ok"]:
+            shutil.copy2(tex, _last(sid))
+            return _finish(
+                {"message": "Solution compiled.", "updated": True, "error": None},
+                edit_ok=True, compile_ok=True,
+            )
+
+        # One auto-fix attempt on compile failure
+        broken     = tex.read_text(encoding="utf-8")
+        fix_system = _FIX_SYS.format(document=broken, error=c["error"])
+        try:
+            fr, _ = await _llm(fix_system,
+                               [{"role": "user", "content": "Fix the compile error."}])
+            fp = _parse(fr)
+            if fp["edits"]:
+                fa = _apply(broken, fp["edits"])
+                if fa["ok"]:
+                    tex.write_text(fa["content"], encoding="utf-8")
+                    c = await _compile(sid)
+                    if c["ok"]:
+                        shutil.copy2(tex, _last(sid))
+                        return _finish(
+                            {"message": "Solution compiled (with auto-fix).", "updated": True, "error": None},
+                            edit_ok=True, compile_ok=True,
+                        )
+        except Exception:
+            pass
+
+        await _revert(sid)
+        return _finish(
+            {"message": f"Generated solution but it wouldn't compile. "
+                        f"Try rephrasing the problem or switching to a different model.\n\n{c['error']}",
              "updated": False, "error": None},
             edit_ok=True, compile_ok=False,
         )
