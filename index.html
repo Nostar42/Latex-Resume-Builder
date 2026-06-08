@@ -187,47 +187,16 @@
     .ph-sheet-icon { font-size: 38px; opacity: .35; line-height: 1; }
     .ph-sheet-text { font-size: 11.5px; color: #aaa; letter-spacing: .25px; text-align: center; padding: 0 20px; }
 
-    /* Ruled notecard — math mode */
+    /* Blank 3×5" notecard — math mode (landscape 5:3) */
     .ph-notecard {
-      display: none; flex-direction: column;
-      width: min(64%, 420px);
-      background: #fefce8;
-      border-radius: 3px;
+      display: none;
+      width: min(72%, 460px);
+      aspect-ratio: 5 / 3;
+      background: #fff;
+      border-radius: 2px;
       box-shadow: 0 8px 32px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.3);
-      overflow: hidden;
-      position: relative;
     }
-    .ph-notecard.show { display: flex; }
-    /* red top stripe */
-    .ph-notecard-top {
-      height: 5px;
-      background: repeating-linear-gradient(90deg, #e57373 0 40px, #ef9a9a 40px 42px, #e57373 42px);
-      flex-shrink: 0;
-    }
-    .ph-notecard-body {
-      padding: 14px 18px 18px 56px;
-      /* ruled lines */
-      background-image: repeating-linear-gradient(
-        transparent 0px, transparent 27px,
-        #d4d0a0 27px, #d4d0a0 28px
-      );
-      background-position: 0 18px;
-      position: relative; min-height: 160px;
-      display: flex; flex-direction: column; justify-content: center;
-    }
-    /* left margin line */
-    .ph-notecard-body::before {
-      content: ''; position: absolute; top: 0; left: 42px;
-      width: 1.5px; height: 100%; background: #f48fb1; opacity: .7;
-    }
-    .ph-notecard-hint {
-      font-size: 13px; color: #7a7040; font-style: italic;
-      font-family: 'Georgia', serif; line-height: 1.9;
-    }
-    .ph-notecard-eq {
-      font-size: 15px; color: #9a8c40; letter-spacing: .5px;
-      font-family: 'Georgia', serif; margin-top: 4px; opacity: .55;
-    }
+    .ph-notecard.show { display: block; }
 
     /* ── Image attachment preview ── */
     #img-preview {
@@ -241,6 +210,49 @@
     .img-filename { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .img-hint { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
     #btn-attach { padding: 10px 13px; font-size: 15px; }
+
+    /* ── Setup Guide drawer ── */
+    #setup-drawer {
+      position: fixed; top: 0; right: 0; height: 100%; width: min(680px, 96vw);
+      background: var(--panel); border-left: 1px solid var(--line); z-index: 22;
+      transform: translateX(100%); transition: transform .22s ease;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #setup-drawer.show { transform: translateX(0); }
+    .shead { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+    .shead h2 { font-size: 13px; font-weight: 600; flex: 1; }
+    .sbody {
+      flex: 1; overflow-y: auto; padding: 20px 22px;
+      font-size: 13px; line-height: 1.65; color: var(--text);
+    }
+    .sbody::-webkit-scrollbar { width: 5px; }
+    .sbody::-webkit-scrollbar-thumb { background: #2c2c33; border-radius: 3px; }
+    .sbody h3 { font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); margin: 22px 0 10px; }
+    .sbody h3:first-child { margin-top: 0; }
+    .sbody p { color: #c8c8ce; margin-bottom: 8px; }
+    .sbody code {
+      font-family: 'Consolas','Fira Mono',monospace; font-size: 11.5px;
+      background: #1a1a20; border: 1px solid var(--line); border-radius: 4px;
+      padding: 1px 5px; color: #a5d6a7;
+    }
+    .sbody pre {
+      background: #131316; border: 1px solid var(--line); border-radius: 7px;
+      padding: 12px 14px; overflow-x: auto; margin: 8px 0 12px;
+      font-family: 'Consolas','Fira Mono',monospace; font-size: 12px;
+      color: #a5d6a7; line-height: 1.55;
+    }
+    .sbody pre code { background: none; border: none; padding: 0; color: inherit; }
+    .sbody ol { padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+    .sbody ol li { color: #c8c8ce; }
+    .sbody ol li strong { color: var(--text); }
+    .sbody table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 12px; }
+    .sbody th { text-align: left; padding: 6px 10px; background: #1f1f24; color: var(--muted); font-weight: 600; border: 1px solid var(--line); }
+    .sbody td { padding: 6px 10px; border: 1px solid var(--line); color: #c8c8ce; }
+    .sbody .tip { background: #1a2030; border: 1px solid #2a3a5c; border-radius: 7px; padding: 10px 13px; color: #90caf9; font-size: 12px; margin: 8px 0 12px; }
+    .sbody .warn { background: #201a14; border: 1px solid #4a3820; border-radius: 7px; padding: 10px 13px; color: #ffcc80; font-size: 12px; margin: 8px 0 12px; }
+    .sbody hr { border: none; border-top: 1px solid var(--line); margin: 18px 0; }
+    .sbody a { color: var(--accent2); text-decoration: none; }
+    .sbody a:hover { text-decoration: underline; }
 
     /* ── Metrics panel (right-side drawer) ── */
     #metrics-drawer {
@@ -357,6 +369,7 @@
   <button class="btn accent" id="btn-templates" onclick="openTemplates()">Templates</button>
   <button class="btn" onclick="openSource()">LaTeX Source</button>
   <button class="btn" id="metrics-btn" onclick="openMetrics()">📊 Metrics</button>
+  <button class="btn" onclick="openSetup()">Setup Guide</button>
   <button class="btn danger" onclick="resetMaster()">Reset</button>
   <a class="btn" href="/api/pdf?download=1" download>Download PDF</a>
 </header>
@@ -372,14 +385,8 @@
         <span class="ph-sheet-icon">📄</span>
         <span class="ph-sheet-text">Attach an image or scan<br>to recreate it as a PDF</span>
       </div>
-      <!-- math mode: ruled notecard -->
-      <div class="ph-notecard" id="ph-notecard">
-        <div class="ph-notecard-top"></div>
-        <div class="ph-notecard-body">
-          <span class="ph-notecard-hint">Your step-by-step solution<br>will appear here…</span>
-          <span class="ph-notecard-eq">∫ ∑ π  →  √ · ∞</span>
-        </div>
-      </div>
+      <!-- math mode: blank 3×5" notecard -->
+      <div class="ph-notecard" id="ph-notecard"></div>
     </div>
 
     <div id="pdf-loading"><div class="spinner"></div><span id="pdf-loading-text">Compiling…</span></div>
@@ -417,6 +424,108 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
         onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
       <button class="btn" id="send" onclick="sendMessage()">Send</button>
     </div>
+  </div>
+</div>
+
+<!-- Setup Guide drawer -->
+<div class="drawer-back" id="setup-back" onclick="closeSetup()"></div>
+<div id="setup-drawer">
+  <div class="shead">
+    <h2>Setup Guide</h2>
+    <button class="btn" onclick="closeSetup()">Close</button>
+  </div>
+  <div class="sbody">
+
+    <h3>How it works</h3>
+    <pre><code>browser ──HTTPS──► nginx :5000 ──proxy──► Uvicorn/FastAPI :8000
+                                               │
+                      ┌────────────────────────┤
+                      │                        │
+                Ollama :11434            pdflatex (MiKTeX)
+              (local AI model)         (LaTeX → PDF compile)</code></pre>
+
+    <hr>
+    <h3>Requirements</h3>
+    <table>
+      <tr><th>Requirement</th><th>Notes</th></tr>
+      <tr><td>Windows 10 / 11</td><td>Launcher scripts are PowerShell 5.1</td></tr>
+      <tr><td><a href="https://miktex.org/download" target="_blank">MiKTeX</a></td><td>Provides <code>pdflatex</code></td></tr>
+      <tr><td><a href="https://ollama.com" target="_blank">Ollama</a></td><td>Local AI runner</td></tr>
+      <tr><td>Python 3.12+</td><td><code>setup.ps1</code> installs via winget automatically</td></tr>
+      <tr><td>nginx for Windows</td><td><code>setup.ps1</code> downloads automatically</td></tr>
+    </table>
+    <div class="tip">Python and nginx are handled for you by <code>setup.ps1</code>. You only need to install MiKTeX and Ollama yourself.</div>
+
+    <hr>
+    <h3>Quick Start</h3>
+    <ol>
+      <li><strong>Install MiKTeX</strong> — download from <a href="https://miktex.org/download" target="_blank">miktex.org/download</a>. Choose <em>Install for all users</em> and enable <em>Install missing packages on-the-fly</em>.</li>
+      <li><strong>Install Ollama and pull a model</strong>
+        <pre><code>winget install Ollama.Ollama
+ollama pull qwen2.5-coder:3b   # recommended starting point</code></pre>
+      </li>
+      <li><strong>Clone the repository</strong>
+        <pre><code>git clone https://github.com/Nostar42/Latex-Resume-Builder.git
+cd Latex-Resume-Builder</code></pre>
+      </li>
+      <li><strong>Run one-time setup</strong> (installs Python, pip packages, nginx)
+        <pre><code>.\setup.ps1</code></pre>
+      </li>
+      <li><strong>Launch</strong> — double-click <code>start.bat</code>, or:
+        <pre><code>.\start.ps1</code></pre>
+        Then open <a href="http://localhost:5000" target="_blank">http://localhost:5000</a> in your browser.
+      </li>
+    </ol>
+
+    <hr>
+    <h3>Recommended Models</h3>
+    <table>
+      <tr><th>Model</th><th>Size</th><th>RAM</th><th>Best for</th></tr>
+      <tr><td><code>qwen2.5-coder:3b</code></td><td>1.9 GB</td><td>4 GB</td><td>LaTeX editing (fast)</td></tr>
+      <tr><td><code>qwen2.5-coder:7b</code></td><td>4.7 GB</td><td>8 GB</td><td>LaTeX editing (better quality)</td></tr>
+      <tr><td><code>phi4-mini</code></td><td>2.5 GB</td><td>4 GB</td><td>Compact, strong reasoning</td></tr>
+      <tr><td><code>deepseek-r1:7b</code></td><td>4.7 GB</td><td>8 GB</td><td>Math / step-by-step problems</td></tr>
+      <tr><td><code>mistral</code></td><td>4.1 GB</td><td>8 GB</td><td>General purpose</td></tr>
+    </table>
+
+    <hr>
+    <h3>Environment Variables</h3>
+    <pre><code>$env:OLLAMA_MODEL     = "qwen2.5-coder:7b"   # default model
+$env:OLLAMA_URL       = "http://localhost:11434"
+$env:SESSION_MAX_AGE  = "86400"              # session TTL in seconds
+
+# Switch to vLLM (GPU server):
+$env:USE_VLLM         = "true"
+$env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
+
+    <hr>
+    <h3>Troubleshooting</h3>
+    <p><strong>"pdflatex not found"</strong> — install MiKTeX and verify with <code>pdflatex --version</code> in PowerShell.</p>
+    <p><strong>First compile is slow or fails</strong> — MiKTeX downloads missing packages on first use (60–120 s). Just try again; subsequent compiles are fast.</p>
+    <p><strong>"Ollama isn't running"</strong> — run <code>ollama serve</code> in a terminal, or check the Ollama tray icon.</p>
+    <p><strong>"Can't reach the model"</strong> — run <code>ollama list</code>; if empty, pull a model first.</p>
+    <p><strong>Port 5000 in use</strong> — <code>start.ps1</code> frees it automatically, or run:</p>
+    <pre><code>Get-NetTCPConnection -LocalPort 5000 -State Listen |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }</code></pre>
+    <p><strong><code>setup.ps1</code> won't run</strong> — bypass policy for this one script:</p>
+    <pre><code>powershell -ExecutionPolicy Bypass -File setup.ps1</code></pre>
+
+    <hr>
+    <h3>Security Notes</h3>
+    <p><code>-no-shell-escape</code> is passed to every <code>pdflatex</code> call — LaTeX source cannot execute shell commands.</p>
+    <p>Session IDs are validated as UUID4 before use as filesystem paths (prevents path traversal).</p>
+    <p>Rate limiting is enforced at both nginx and FastAPI layers. Designed for personal/LAN use.</p>
+
+    <hr>
+    <h3>Going Further (public hosting)</h3>
+    <ol>
+      <li>A Linux VPS (Hetzner, DigitalOcean) — $6–24/month</li>
+      <li>A domain + Let's Encrypt certificate (<code>certbot</code>)</li>
+      <li>Replace the PowerShell launcher with a <code>systemd</code> service</li>
+      <li>Replace Ollama with vLLM on a GPU, or a cloud API like Groq</li>
+    </ol>
+    <div class="tip">Set <code>USE_VLLM=true</code> and <code>LLM_BASE_URL</code> to switch the AI backend with no code changes.</div>
+
   </div>
 </div>
 
@@ -779,6 +888,15 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
   function closeMetrics() {
     document.getElementById('metrics-back').classList.remove('show');
     document.getElementById('metrics-drawer').classList.remove('show');
+  }
+
+  function openSetup() {
+    document.getElementById('setup-back').classList.add('show');
+    document.getElementById('setup-drawer').classList.add('show');
+  }
+  function closeSetup() {
+    document.getElementById('setup-back').classList.remove('show');
+    document.getElementById('setup-drawer').classList.remove('show');
   }
 
   function escapeHtml(s) {
