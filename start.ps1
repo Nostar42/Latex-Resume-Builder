@@ -32,9 +32,21 @@ try { & $py -m uvicorn --version 2>&1 | Out-Null } catch {
 }
 
 # ── Free ports ────────────────────────────────────────────────────────────────
+# Only kill processes we recognise (python / nginx / uvicorn) so we don't
+# accidentally terminate an unrelated service that happens to be on the port.
 foreach ($port in @($uvPort, $pubPort)) {
     Get-NetTCPConnection -LocalPort $port -State Listen -EA SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -EA SilentlyContinue }
+        ForEach-Object {
+            $pid_  = $_.OwningProcess
+            $proc  = Get-Process -Id $pid_ -EA SilentlyContinue
+            $pname = if ($proc) { $proc.Name } else { "unknown" }
+            if ($pname -match "(?i)python|nginx|uvicorn") {
+                Write-Host "  Freeing port $port (PID $pid_ / $pname)" -ForegroundColor DarkGray
+                Stop-Process -Id $pid_ -Force -EA SilentlyContinue
+            } else {
+                Write-Host "  WARN: port $port in use by '$pname' (PID $pid_) -- not killed." -ForegroundColor Yellow
+            }
+        }
 }
 Start-Sleep 1
 
@@ -54,6 +66,8 @@ $uvArgs = @("-m", "uvicorn", "server.main:app",
 $uvProc = Start-Process $py -ArgumentList $uvArgs `
     -WorkingDirectory $root -PassThru -NoNewWindow
 Write-Host "  Uvicorn  : PID $($uvProc.Id)" -ForegroundColor DarkGray
+# Write PID file so external tools (monitoring scripts, CI) can find Uvicorn.
+"$($uvProc.Id)" | Out-File -FilePath "$root\temp\uvicorn.pid" -Encoding ascii -NoNewline
 
 # Poll until Uvicorn is actually listening on its port (up to 15 s).
 # A flat sleep is fragile on slow machines or cold Python starts.
@@ -100,6 +114,7 @@ try {
     $uvProc | Wait-Process -EA SilentlyContinue
 } finally {
     Write-Host "" ; Write-Host "  Stopping services..." -ForegroundColor DarkGray
+    Remove-Item "$root\temp\uvicorn.pid" -Force -EA SilentlyContinue
     try { Stop-Process -Id $uvProc.Id -Force -EA SilentlyContinue } catch {}
     if ($ngProc) {
         try {

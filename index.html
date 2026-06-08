@@ -862,7 +862,17 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
           syncPlaceholder();
           reloadPdf();
         } else {
-          setSourceStatus('Compile error (kept last good PDF):\n' + (data.error || ''), true);
+          if (data.reverted) {
+            // Server reverted to last-good .tex; sync textarea to match.
+            try {
+              const srcRes  = await fetch('/api/source');
+              const srcData = await srcRes.json();
+              document.getElementById('source-edit').value = srcData.content || '';
+            } catch (_) {}
+            setSourceStatus('Compile error — reverted to last good version:\n' + (data.error || ''), true);
+          } else {
+            setSourceStatus('Compile error (kept last good PDF):\n' + (data.error || ''), true);
+          }
           showLoading(false);
         }
       }
@@ -897,14 +907,6 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
   function closeSetup() {
     document.getElementById('setup-back').classList.remove('show');
     document.getElementById('setup-drawer').classList.remove('show');
-  }
-
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
   }
 
   async function loadMetrics() {
@@ -967,9 +969,9 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
 
       recent.forEach((e, i) => {
         const num    = entries.length - i;
-        const elS    = e.elapsed_ms ? (e.elapsed_ms / 1000).toFixed(1) + ' s' : '—';
-        const tok    = e.gen_tokens || '—';
-        const tokSec = e.tokens_per_sec || '—';
+        const elS    = e.elapsed_ms ? escapeHtml((e.elapsed_ms / 1000).toFixed(1) + ' s') : '—';
+        const tok    = escapeHtml(String(Number(e.gen_tokens) || '—'));
+        const tokSec = escapeHtml(String(e.tokens_per_sec || '—'));
         let resultHtml, rowClass;
         if (e.compile_ok === true)  { resultHtml = '<span style="color:var(--good)">✓ compiled</span>'; rowClass = ''; }
         else if (e.compile_ok === false) { resultHtml = '<span style="color:var(--bad)">✗ reverted</span>'; rowClass = 'compile-fail'; }
@@ -978,7 +980,7 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
         html += `<tr class="${rowClass}">
           <td>${num}</td>
           <td class="model-cell" title="${escapeHtml(e.model)}">${escapeHtml(e.model)}</td>
-          <td>${elS}</td><td>${Number(e.gen_tokens) || '—'}</td><td>${tokSec}</td>
+          <td>${elS}</td><td>${tok}</td><td>${tokSec}</td>
           <td>${resultHtml}</td>
         </tr>`;
       });

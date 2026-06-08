@@ -262,10 +262,16 @@ app = FastAPI(lifespan=lifespan)
 # ---------------------------------------------------------------------------
 # Active model (shared across all sessions, persisted in temp/model.txt)
 # ---------------------------------------------------------------------------
+_active_model_cache: str | None = None   # avoids a disk read on every LLM call
+
 def _active_model() -> str:
+    global _active_model_cache
+    if _active_model_cache:
+        return _active_model_cache
     if MODEL_FILE.exists():
         m = MODEL_FILE.read_text(encoding="utf-8").strip()
         if m:
+            _active_model_cache = m
             return m
     return DEFAULT_MODEL
 
@@ -273,9 +279,12 @@ def _active_model() -> str:
 _model_lock = threading.Lock()
 
 def _set_model(name: str) -> None:
+    global _active_model_cache
     # Lock guards against concurrent writes from two simultaneous model-switch requests.
     with _model_lock:
-        MODEL_FILE.write_text(name.strip(), encoding="utf-8")
+        name = name.strip()
+        MODEL_FILE.write_text(name, encoding="utf-8")
+        _active_model_cache = name   # keep cache in sync
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +317,10 @@ def _resolve(session_id: Optional[str]) -> tuple[str, bool]:
 
 def _set_cookie(resp: Response | JSONResponse, sid: str, is_new: bool) -> None:
     if is_new:
-        resp.set_cookie("session_id", sid, max_age=86400 * 30,
+        # Align cookie lifetime with the server-side session TTL (+ 1 h grace).
+        # Previously 30 days, which outlived the 24-hour session by 29× and
+        # caused stale cookies pointing at deleted session directories.
+        resp.set_cookie("session_id", sid, max_age=SESSION_MAX_AGE + 3600,
                         samesite="lax", httponly=True)
 
 
@@ -379,8 +391,8 @@ def _compile_sync(sid: str) -> dict:
         guard_err = _guard_latex(latex_src)
         if guard_err:
             return {"ok": False, "error": guard_err}
-    except Exception:
-        pass  # if we can't read the source, let pdflatex produce the real error
+    except OSError as exc:
+        return {"ok": False, "error": f"Cannot read source file: {exc}"}
 
     try:
         result = subprocess.run(
@@ -621,7 +633,7 @@ Rules:
 - If the user refines or extends, output the FULL updated document.
 
 Current document (context for refinements — empty on first problem):
-{{document}}"""
+{document}"""
 
 # ---------------------------------------------------------------------------
 # Security helpers
@@ -638,19 +650,36 @@ _GUARD_LATEX_RX = re.compile(
     r'\\(?:input|include|openin)\b\s*(?:\d+\s*=\s*)?\{([^}]*)\}',
     re.IGNORECASE,
 )
+# Matches the no-brace form used by plain TeX: \input filename
+# (space-separated, no curly braces).  Standard pdflatex supports this too.
+_GUARD_LATEX_RX2 = re.compile(
+    r'\\input\b\s+([^\s{%\\][^\s{%]*)',
+    re.IGNORECASE,
+)
+
+_PATH_SUSPICIOUS = re.compile(r'^[A-Za-z]:[/\\]')
+
+def _path_is_external(path: str) -> bool:
+    return ('..' in path
+            or path.startswith('/')
+            or path.startswith('\\')
+            or bool(_PATH_SUSPICIOUS.match(path)))
 
 def _guard_latex(latex: str) -> str | None:
     """Return an error string if the source contains suspicious file-access
     directives, or None if safe to compile."""
     for m in _GUARD_LATEX_RX.finditer(latex):
         path = m.group(1).strip()
-        if ('..' in path
-                or path.startswith('/')
-                or path.startswith('\\')
-                or re.match(r'^[A-Za-z]:[/\\]', path)):
+        if _path_is_external(path):
             return (f"Blocked: LaTeX directive references an external path "
                     f"('{path}'). Only relative includes within the document "
                     f"directory are allowed.")
+    # Also check the no-brace plain-TeX form: \input filename
+    for m in _GUARD_LATEX_RX2.finditer(latex):
+        path = m.group(1).strip()
+        if _path_is_external(path):
+            return (f"Blocked: \\input references an external path "
+                    f"('{path}'). Only relative includes are allowed.")
     return None
 
 
@@ -730,7 +759,10 @@ async def post_source(request: Request, session_id: Optional[str] = Cookie(None)
     if not await _rate_limit(request, _RL_COMPILE): return _too_many()
     if not _valid_sid(session_id):
         return JSONResponse({"ok": False, "error": "No session."}, status_code=400)
-    body    = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON body."}, status_code=400)
     content = body.get("content", "")
     # FIX #13: reject runaway payloads before writing to disk.
     if len(content.encode("utf-8")) > MAX_SOURCE_BYTES:
@@ -740,7 +772,9 @@ async def post_source(request: Request, session_id: Optional[str] = Cookie(None)
     c = await _compile(session_id)  # type: ignore[arg-type]
     if not c["ok"]:
         await _revert(session_id)  # type: ignore[arg-type]
-    return JSONResponse({"ok": c["ok"], "error": c["error"]})
+    # "reverted" tells the frontend to re-fetch the source so the textarea
+    # reflects the last-good file that was restored, not the bad content.
+    return JSONResponse({"ok": c["ok"], "error": c["error"], "reverted": not c["ok"]})
 
 
 @app.post("/api/reset")
@@ -770,7 +804,10 @@ async def get_templates(request: Request, session_id: Optional[str] = Cookie(Non
 async def post_template(request: Request, session_id: Optional[str] = Cookie(None)):
     if not await _rate_limit(request, _RL_COMPILE): return _too_many()
     sid, is_new = _resolve(session_id)
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return _resp({"ok": False, "error": "Invalid JSON body."}, sid, is_new, status=400)
     name = str(body.get("name", ""))
     if not _load_tmpl(sid, name):
         return _resp({"ok": False, "error": f"Unknown template: {name}"}, sid, is_new)
@@ -795,7 +832,10 @@ async def get_models(request: Request):
 @app.post("/api/model")
 async def post_model(request: Request):
     if not await _rate_limit(request, _RL_API): return _too_many()
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON body."}, status_code=400)
     name = str(body.get("name", "")).strip()
     if not name:
         return JSONResponse({"ok": False, "error": "No model name provided."})
@@ -890,9 +930,19 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
     t0: float = time.monotonic()
     llm_perf: dict | None = None
 
-    body     = await request.json()
-    messages = body.get("messages", [])[-20:]
-    images   = body.get("images") or []          # base64 strings from image upload
+    try:
+        body = await request.json()
+    except Exception:
+        return _resp({"message": "", "updated": False,
+                      "error": "Invalid JSON body."}, sid, is_new, status=400)
+    raw_messages = body.get("messages", [])
+    if not isinstance(raw_messages, list):
+        return _resp({"message": "", "updated": False,
+                      "error": "messages must be a list."}, sid, is_new, status=400)
+    messages = raw_messages[-20:]
+    images   = body.get("images") or []
+    if not isinstance(images, list):
+        images = []
     mode     = body.get("mode", "resume")        # "resume" | "math" | "image"
 
     # Guard against oversized image payloads
@@ -971,7 +1021,10 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
             )
         # Try one auto-fix pass on compile failure
         broken     = tex.read_text(encoding="utf-8")
-        fix_system = _FIX_SYS.format(document=broken, error=c["error"])
+        fix_system = _FIX_SYS.format(
+            document=broken.replace("{", "{{").replace("}", "}}"),
+            error=c["error"].replace("{", "{{").replace("}", "}}"),
+        )
         try:
             fr, _ = await _llm(fix_system,
                                [{"role": "user", "content": "Fix the compile error."}])
@@ -1014,7 +1067,11 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
             if tmpl_path.exists():
                 math_doc = tmpl_path.read_text(encoding="utf-8")
 
-        math_system = _MATH_SYS.format(document=math_doc)
+        # Escape { and } in the document so Python's str.format() doesn't
+        # mistake LaTeX braces (e.g. \frac{a}{b}) for format placeholders.
+        math_system = _MATH_SYS.format(
+            document=math_doc.replace("{", "{{").replace("}", "}}")
+        )
         try:
             raw, llm_perf = await _llm(math_system, messages)
         except Exception:
@@ -1052,7 +1109,10 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
 
         # One auto-fix attempt on compile failure
         broken     = tex.read_text(encoding="utf-8")
-        fix_system = _FIX_SYS.format(document=broken, error=c["error"])
+        fix_system = _FIX_SYS.format(
+            document=broken.replace("{", "{{").replace("}", "}}"),
+            error=c["error"].replace("{", "{{").replace("}", "}}"),
+        )
         try:
             fr, _ = await _llm(fix_system,
                                [{"role": "user", "content": "Fix the compile error."}])
@@ -1082,7 +1142,8 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
     # ══════════════════════════════════════════════════════════════════════
     # STANDARD EDIT MODE  (SEARCH/REPLACE)
     # ══════════════════════════════════════════════════════════════════════
-    system = _CHAT_SYS.format(document=document)
+    # Escape LaTeX braces before format() so \frac{a}{b} doesn't cause KeyError.
+    system = _CHAT_SYS.format(document=document.replace("{", "{{").replace("}", "}}"))
 
     try:
         reply, llm_perf = await _llm(system, messages)
@@ -1137,7 +1198,10 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
 
     if not c["ok"]:
         broken     = tex.read_text(encoding="utf-8")
-        fix_system = _FIX_SYS.format(document=broken, error=c["error"])
+        fix_system = _FIX_SYS.format(
+            document=broken.replace("{", "{{").replace("}", "}}"),
+            error=c["error"].replace("{", "{{").replace("}", "}}"),
+        )
         try:
             fr, _ = await _llm(fix_system,
                                [{"role": "user", "content": "Fix the compile error."}])

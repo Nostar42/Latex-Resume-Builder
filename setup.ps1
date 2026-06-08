@@ -53,6 +53,8 @@ if (Test-Path $nginxExe) {
     $ver = (& $nginxExe -v 2>&1) | ForEach-Object { "$_" } | Select-Object -First 1
     Ok "nginx already present ($ver)."
 } else {
+    # To upgrade nginx, update this version string to the latest stable
+    # Windows release listed at https://nginx.org/en/download.html
     $version = "1.26.2"
     $url     = "https://nginx.org/download/nginx-$version.zip"
     $zip     = "$env:TEMP\nginx-$version.zip"
