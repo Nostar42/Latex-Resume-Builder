@@ -47,7 +47,10 @@ Step "Checking nginx..."
 $nginxExe = "$root\nginx\nginx.exe"
 
 if (Test-Path $nginxExe) {
-    $ver = & $nginxExe -v 2>&1
+    # nginx writes its version to stderr; pipe through ForEach-Object to coerce
+    # the ErrorRecord objects to plain strings before $ErrorActionPreference=Stop
+    # can treat them as fatal errors (NativeCommandError).
+    $ver = (& $nginxExe -v 2>&1) | ForEach-Object { "$_" } | Select-Object -First 1
     Ok "nginx already present ($ver)."
 } else {
     $version = "1.26.2"
