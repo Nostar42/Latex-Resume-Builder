@@ -486,14 +486,18 @@ async def _revert(sid: str) -> None:
 # ---------------------------------------------------------------------------
 _EDIT_RX = re.compile(
     r"<{5,}\s*SEARCH[^\n]*\n(.*?)\n={5,}[^\n]*\n(.*?)\n>{5,}\s*REPLACE",
-    re.DOTALL,
+    re.DOTALL | re.IGNORECASE,   # accept lowercase search/replace from some models
 )
 
 
 def _parse(text: str) -> dict:
     # Build match list once; reuse for both edits and leading-text extraction.
     matches = list(_EDIT_RX.finditer(text))
-    edits   = [{"search": m.group(1), "replace": m.group(2)} for m in matches]
+    # Strip leading/trailing blank lines from each captured group.
+    # Models (especially Phi-4) sometimes add an extra blank line inside the
+    # marker fences; stripping it here prevents false "not found" failures.
+    edits   = [{"search": m.group(1).strip("\n"),
+                 "replace": m.group(2).strip("\n")} for m in matches]
     msg     = text[: matches[0].start()].strip() if matches else text.strip()
     return {"message": msg or "Done.", "edits": edits}
 
@@ -503,10 +507,42 @@ def _apply(content: str, edits: list) -> dict:
     for e in edits:
         s = e["search"].replace("\r", "")
         r = e["replace"].replace("\r", "")
-        if not s or s not in c:
-            return {"ok": False, "content": content,
-                    "error": f"SEARCH text not found:\n{s}"}
-        c = c.replace(s, r, 1)
+        if not s:
+            return {"ok": False, "content": content, "error": "Empty SEARCH block."}
+
+        # ── Primary: exact match ──────────────────────────────────────────
+        if s in c:
+            c = c.replace(s, r, 1)
+            continue
+
+        # ── Fallback: trailing-whitespace-normalised match ───────────────
+        # Models often copy the snippet correctly but strip trailing spaces
+        # or add a stray blank line, making exact match fail even though the
+        # intent is unambiguous.  Normalise both sides (rstrip each line),
+        # check for a line-boundary match, then splice at the line level so
+        # the rest of the document is untouched.
+        c_lines = c.splitlines()
+        s_norm  = "\n".join(ln.rstrip() for ln in s.splitlines())
+        c_norm  = "\n".join(ln.rstrip() for ln in c_lines)
+        if s_norm and s_norm in c_norm:
+            idx = c_norm.index(s_norm)
+            # Only accept if the match starts at a line boundary (safety guard
+            # against a mid-line false positive on very short search texts).
+            if idx == 0 or c_norm[idx - 1] == "\n":
+                line_start = c_norm[:idx].count("\n")
+                line_count = s_norm.count("\n") + 1
+                c = "\n".join(
+                    c_lines[:line_start]
+                    + r.splitlines()
+                    + c_lines[line_start + line_count:]
+                )
+                # Restore trailing newline if the original document had one.
+                if content.endswith("\n") and not c.endswith("\n"):
+                    c += "\n"
+                continue
+
+        return {"ok": False, "content": content,
+                "error": f"SEARCH text not found:\n{s}"}
     return {"ok": True, "content": c, "error": None}
 
 
@@ -583,7 +619,10 @@ the replacement snippet
 >>>>>>> REPLACE
 
 Always include ALL THREE marker lines AND the SEARCH snippet.
-The snippet must appear verbatim in the file and be unique enough to identify the spot.
+The SEARCH block must be copied CHARACTER-FOR-CHARACTER from the file —
+preserve every space, backslash, brace, and line break exactly as they appear.
+Do NOT rephrase, reformat, add blank lines, or change indentation.
+Include 2-3 lines of context so the snippet is unique in the file.
 
 Worked example. User: "change the section title to Methods". The file contains:
 \\section{{Introduction}}
@@ -599,6 +638,7 @@ Rules:
 - Produce valid LaTeX; escape special chars (& % $ # _) in inserted text.
 - Do NOT output the whole file, do NOT use code fences.
 - If no change is requested, reply in plain text with NO edit blocks.
+- SEARCH text must match the file exactly — even one wrong space will fail.
 
 Current document.tex:
 {document}"""
@@ -1203,9 +1243,11 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
             retry = messages + [
                 {"role": "assistant", "content": reply},
                 {"role": "user",
-                 "content": "Your SEARCH text was not found. "
-                            "Copy the exact text from the current document.tex (shown above) "
-                            "and try again."},
+                 "content": "Your SEARCH text was not found verbatim in the document. "
+                            "Open document.tex above and copy the lines "
+                            "character-for-character — every space, backslash, and brace "
+                            "must match exactly. Include 2-3 surrounding lines for context. "
+                            "Do NOT paraphrase or change any whitespace."},
             ]
             r2, _ = await _llm(system, retry)
             p2 = _parse(r2)
