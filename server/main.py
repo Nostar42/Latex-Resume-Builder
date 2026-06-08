@@ -76,19 +76,19 @@ _rl_store: dict[str, list[float]] = defaultdict(list)
 _rl_lock = asyncio.Lock()   # created fresh in the event loop via _rate_limit()
 
 # ---------------------------------------------------------------------------
-# Per-session AI performance metrics
-# Keyed by session_id → list of metric dicts (capped at _METRICS_CAP).
-# Stored in memory only; cleared on server restart.
+# Global AI performance metrics (all sessions combined).
+# Stored in memory only; cleared on server restart.  Capped at _METRICS_CAP
+# to bound memory use on long-running servers.
 # ---------------------------------------------------------------------------
-_METRICS_CAP = 200
-_metrics: dict[str, list[dict]] = defaultdict(list)
+_METRICS_CAP = 500
+_metrics: list[dict] = []
 
 
-def _record_metric(sid: str, entry: dict) -> None:
-    lst = _metrics[sid]
-    lst.append(entry)
-    if len(lst) > _METRICS_CAP:
-        _metrics[sid] = lst[-_METRICS_CAP:]
+def _record_metric(entry: dict) -> None:
+    global _metrics
+    _metrics.append(entry)
+    if len(_metrics) > _METRICS_CAP:
+        _metrics = _metrics[-_METRICS_CAP:]
 
 _RL_WINDOW  = 60.0   # sliding window width in seconds
 _RL_CHAT    = 10
@@ -633,13 +633,11 @@ async def post_model(request: Request):
 
 
 @app.get("/api/metrics")
-async def get_metrics(request: Request, session_id: Optional[str] = Cookie(None)):
-    """Return per-session AI performance metrics + aggregate summary."""
+async def get_metrics(request: Request):
+    """Return global AI performance metrics + aggregate summary (all sessions)."""
     if not await _rate_limit(request, _RL_API): return _too_many()
-    if not _valid_sid(session_id):
-        return JSONResponse({"entries": [], "summary": {}})
 
-    entries: list[dict] = _metrics.get(session_id, [])  # type: ignore[arg-type]
+    entries: list[dict] = _metrics
     if not entries:
         return JSONResponse({"entries": [], "summary": {}})
 
@@ -719,7 +717,7 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
             "edit_ok":       edit_ok,
             "compile_ok":    compile_ok,
         }
-        _record_metric(sid, entry)
+        _record_metric(entry)
         # Perf summary sent back to the browser for the per-message badge
         perf_out = {
             "elapsed_s":      round(elapsed_ms / 1000, 1),

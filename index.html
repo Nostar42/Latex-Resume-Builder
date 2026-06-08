@@ -561,7 +561,7 @@
         return;
       }
 
-      sub.textContent = summary.total + ' request' + (summary.total !== 1 ? 's' : '') + ' this session';
+      sub.textContent = summary.total + ' request' + (summary.total !== 1 ? 's' : '') + ' across all sessions';
 
       // ── Stat cards ──────────────────────────────────────────────────────
       const successPct = summary.compile_rate !== null
