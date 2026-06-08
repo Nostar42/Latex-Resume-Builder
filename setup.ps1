@@ -47,10 +47,17 @@ Step "Checking nginx..."
 $nginxExe = "$root\nginx\nginx.exe"
 
 if (Test-Path $nginxExe) {
-    # nginx writes its version to stderr; pipe through ForEach-Object to coerce
-    # the ErrorRecord objects to plain strings before $ErrorActionPreference=Stop
-    # can treat them as fatal errors (NativeCommandError).
-    $ver = (& $nginxExe -v 2>&1) | ForEach-Object { "$_" } | Select-Object -First 1
+    # nginx writes its version to stderr.  In PowerShell 5.1 with
+    # $ErrorActionPreference=Stop, native-exe stderr lines are wrapped as
+    # ErrorRecord objects and thrown as NativeCommandError before a pipeline
+    # ForEach-Object can coerce them -- behaviour varies by PS build.
+    # A try/catch is the only reliable cross-version fix: the exception
+    # message itself contains the version string we need.
+    try {
+        $ver = (& $nginxExe -v 2>&1) | ForEach-Object { "$_" } | Select-Object -First 1
+    } catch {
+        $ver = "$_"
+    }
     Ok "nginx already present ($ver)."
 } else {
     # To upgrade nginx, update this version string to the latest stable
