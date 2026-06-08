@@ -622,7 +622,13 @@ async def post_model(request: Request):
             r = await client.get(f"{OLLAMA_URL}/api/tags")
             r.raise_for_status()
             installed = [m["name"] for m in r.json().get("models", [])]
-        if name not in installed:
+        # Normalize: Ollama stores tag-less pulls as "model:latest".
+        # Accept bare names (e.g. "phi4") that match a "phi4:latest" entry.
+        installed_norm = set(installed)
+        for m in installed:
+            if m.endswith(":latest"):
+                installed_norm.add(m[: -len(":latest")])
+        if name not in installed_norm:
             return JSONResponse({"ok": False,
                                  "error": f"Model '{name}' is not installed. "
                                           f"Run: ollama pull {name}"})

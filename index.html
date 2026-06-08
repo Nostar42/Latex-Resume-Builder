@@ -667,6 +667,11 @@
       const res = await fetch('/api/models');
       const data = await res.json();
       const installed = new Set(data.models || []);
+      // Ollama stores tag-less pulls as "model:latest" (e.g. phi4:latest, llama3.3:latest).
+      // Also add the bare name so catalog entries like "phi4" match "phi4:latest".
+      (data.models || []).forEach(m => {
+        if (m.endsWith(':latest')) installed.add(m.slice(0, -7));
+      });
       const current = data.current || '';
       sel.innerHTML = '';
       sel.disabled = false;
