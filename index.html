@@ -629,15 +629,22 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
   }
 
   // ── PDF ──
+  // Generation counter: only the most-recent reloadPdf() call's load event
+  // dismisses the spinner.  Without this, a second call while the first is
+  // still loading causes the first's 'load' to fire and hide the spinner
+  // early, leaving the iframe stuck on the old PDF with no visual feedback.
+  let _pdfGen = 0;
   function reloadPdf() {
-    document.getElementById('pdf').src = '/api/pdf?t=' + Date.now() + '#toolbar=0';
+    const gen = ++_pdfGen;
+    const iframe = document.getElementById('pdf');
+    iframe.onload = () => { if (gen === _pdfGen) showLoading(false); };
+    iframe.src = '/api/pdf?t=' + Date.now() + '#toolbar=0';
   }
   function showLoading(on, text) {
     const el = document.getElementById('pdf-loading');
     if (text) document.getElementById('pdf-loading-text').textContent = text;
     el.classList.toggle('show', on);
   }
-  document.getElementById('pdf').addEventListener('load', () => showLoading(false));
 
   // ── Chat ──
   async function sendMessage() {
@@ -713,7 +720,9 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
     const div    = document.createElement('div');
     div.className = 'msg ' + type;
     div.textContent = text;
-    // Attach perf badge to AI replies when stats are available
+    // Attach perf badge to AI replies when stats are available.
+    // Build with DOM methods (not innerHTML) so server-sourced numeric strings
+    // cannot inject HTML even if Ollama returns an unexpected value.
     if (perf && type === 'assistant' && (perf.elapsed_s || perf.gen_tokens)) {
       const badge = document.createElement('div');
       badge.className = 'perf-badge';
@@ -721,12 +730,20 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
       if (perf.elapsed_s)      parts.push('⏱ ' + perf.elapsed_s + ' s');
       if (perf.gen_tokens)     parts.push(perf.gen_tokens + ' tok');
       if (perf.tokens_per_sec) parts.push(perf.tokens_per_sec + ' tok/s');
-      badge.innerHTML = parts.join('  &middot;  ');
-      if (perf.compile_ok === true) {
-        badge.innerHTML += '  &middot;  <span class="ok">✓ compiled</span>';
-      } else if (perf.compile_ok === false) {
-        badge.innerHTML += '  &middot;  <span class="bad">✗ reverted</span>';
-      }
+      parts.forEach((part, i) => {
+        if (i > 0) badge.appendChild(document.createTextNode('  ·  '));
+        badge.appendChild(document.createTextNode(part));
+      });
+      // Compile status uses a styled <span> — only the class name varies, not
+      // any server-controlled content, so this is safe.
+      const addStatus = (cls, label) => {
+        if (parts.length) badge.appendChild(document.createTextNode('  ·  '));
+        const s = document.createElement('span');
+        s.className = cls; s.textContent = label;
+        badge.appendChild(s);
+      };
+      if (perf.compile_ok === true)  addStatus('ok',  '✓ compiled');
+      if (perf.compile_ok === false) addStatus('bad', '✗ reverted');
       div.appendChild(badge);
     }
     box.insertBefore(div, typing);
@@ -1022,7 +1039,11 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
     },
   };
 
-  let currentMode = localStorage.getItem('atz-mode') || 'resume';
+  // Validate stored mode against the MODES map so a stale or manually-edited
+  // value can't leave currentMode pointing at an undefined config object,
+  // which would crash applyStoredMode() with a TypeError on startup.
+  const _storedMode = localStorage.getItem('atz-mode');
+  let currentMode = (_storedMode && MODES[_storedMode]) ? _storedMode : 'resume';
 
   function toggleModeMenu(e) {
     e.stopPropagation();

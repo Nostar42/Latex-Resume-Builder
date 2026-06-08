@@ -52,11 +52,26 @@ DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
 USE_VLLM     = os.getenv("USE_VLLM", "").lower() in ("1", "true", "yes")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", OLLAMA_URL)
 
-# MiKTeX path is auto-detected; the hard-coded fallback matches this machine.
-PDFLATEX = (
-    shutil.which("pdflatex")
-    or r"C:\Users\hp\AppData\Local\Programs\MiKTeX\miktex\bin\x64\pdflatex.exe"
-)
+# MiKTeX / TeX Live path detection.  shutil.which() covers anything on PATH;
+# the candidate list handles common Windows installs where MiKTeX is not on PATH.
+def _find_pdflatex() -> str:
+    on_path = shutil.which("pdflatex")
+    if on_path:
+        return on_path
+    _candidates = [
+        # System-wide MiKTeX (default installer target)
+        r"C:\Program Files\MiKTeX\miktex\bin\x64\pdflatex.exe",
+        r"C:\Program Files (x86)\MiKTeX\miktex\bin\x64\pdflatex.exe",
+        # Per-user MiKTeX (matches this machine's install)
+        r"C:\Users\hp\AppData\Local\Programs\MiKTeX\miktex\bin\x64\pdflatex.exe",
+    ]
+    for c in _candidates:
+        if Path(c).exists():
+            return c
+    # Nothing found — return the system-wide path so the error message is helpful.
+    return _candidates[0]
+
+PDFLATEX = _find_pdflatex()
 
 # Set DEV=1 to skip index.html caching so edits are served without restart.
 DEV_MODE = os.getenv("DEV", "").lower() in ("1", "true", "yes")
@@ -106,12 +121,18 @@ def _load_metrics() -> list[dict]:
 
 
 def _save_metrics_locked() -> None:
-    """Write _metrics to disk. Caller must hold _metrics_lock."""
+    """Write _metrics to disk atomically. Caller must hold _metrics_lock.
+
+    Writes to a .tmp file first, then renames over the real file so a
+    crash or Ctrl+C mid-write never leaves a corrupted metrics.json.
+    """
     try:
-        METRICS_FILE.write_text(
+        tmp = METRICS_FILE.with_suffix(".tmp")
+        tmp.write_text(
             json.dumps(_metrics, separators=(",", ":")),
             encoding="utf-8",
         )
+        os.replace(tmp, METRICS_FILE)   # atomic on POSIX; near-atomic on Windows
     except Exception as exc:
         print(f"  WARN metrics save: {exc}")
 
@@ -330,7 +351,10 @@ def _init_session(sid: str) -> None:
         names = _tnames()
         tmpl  = _cur_tmpl(sid, names)
         if tmpl:
-            shutil.copy2(TEMPLATES_DIR / f"{tmpl}.tex", _tex(sid))
+            try:
+                shutil.copy2(TEMPLATES_DIR / f"{tmpl}.tex", _tex(sid))
+            except FileNotFoundError:
+                pass   # template deleted between listing and copy; session starts empty
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +392,10 @@ def _cur_tmpl(sid: str, names: list[str] | None = None) -> str:
 def _load_tmpl(sid: str, name: str) -> bool:
     if name not in _tnames():
         return False
-    shutil.copy2(TEMPLATES_DIR / f"{name}.tex", _tex(sid))
+    try:
+        shutil.copy2(TEMPLATES_DIR / f"{name}.tex", _tex(sid))
+    except FileNotFoundError:
+        return False   # template deleted between listing and copy
     _cur(sid).write_text(name, encoding="utf-8")
     return True
 
@@ -785,7 +812,10 @@ async def reset(request: Request, session_id: Optional[str] = Cookie(None)):
     names = _tnames()
     tmpl  = _cur_tmpl(session_id, names)  # type: ignore[arg-type]
     if tmpl:
-        shutil.copy2(TEMPLATES_DIR / f"{tmpl}.tex", _tex(session_id))  # type: ignore[arg-type]
+        try:
+            shutil.copy2(TEMPLATES_DIR / f"{tmpl}.tex", _tex(session_id))  # type: ignore[arg-type]
+        except FileNotFoundError:
+            return JSONResponse({"ok": False, "error": f"Template '{tmpl}' not found on disk."})
     c = await _compile(session_id)  # type: ignore[arg-type]
     return JSONResponse({"ok": c["ok"], "error": c["error"]})
 
@@ -943,7 +973,9 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
     images   = body.get("images") or []
     if not isinstance(images, list):
         images = []
-    mode     = body.get("mode", "resume")        # "resume" | "math" | "image"
+    mode = body.get("mode", "resume")
+    if mode not in ("resume", "math", "image"):
+        mode = "resume"                          # unknown modes fall back to edit
 
     # Guard against oversized image payloads
     total_img_bytes = sum(len(b) for b in images)
@@ -983,17 +1015,19 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
     # IMAGE-TO-LaTeX CREATE MODE
     # When images are attached the model generates a complete new document
     # from scratch — no SEARCH/REPLACE, full document output.
+    # Note: image presence takes precedence over the mode field.  The frontend
+    # always sends mode=="image" when images are attached, but guarding on
+    # the image list itself makes the dispatch unambiguous regardless.
     # ══════════════════════════════════════════════════════════════════════
     if images:
         try:
             raw, llm_perf = await _llm(_CREATE_SYS, messages, images=images)
         except Exception:
-            model = _active_model()
             return _resp(
                 {"message": "", "updated": False,
-                 "error": (f"Can't reach the model at {LLM_BASE_URL}. "
-                           f"Make sure Ollama is running and the active model supports vision "
-                           f"(llava, minicpm-v, moondream). Try: ollama run llava")},
+                 "error": ("Can't reach Ollama. Make sure it's running and the active model "
+                           "supports vision (llava, minicpm-v, moondream). "
+                           "Try: ollama run llava")},
                 sid, is_new, status=500,
             )
 
@@ -1078,8 +1112,7 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
             model = _active_model()
             return _resp(
                 {"message": "", "updated": False,
-                 "error": f"Can't reach the model at {LLM_BASE_URL}. "
-                          f"Is Ollama running? Try: ollama run {model}"},
+                 "error": f"Can't reach Ollama. Is it running? Try: ollama run {model}"},
                 sid, is_new, status=500,
             )
 
@@ -1151,8 +1184,7 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
         model = _active_model()
         return _resp(
             {"message": "", "updated": False,
-             "error": f"Can't reach the model at {LLM_BASE_URL}. "
-                      f"Is Ollama running? Try: ollama run {model}"},
+             "error": f"Can't reach Ollama. Is it running? Try: ollama run {model}"},
             sid, is_new, status=500,
         )
 
