@@ -631,6 +631,21 @@ def _strip_fences(text: str) -> str:
     return m.group(1).strip() if m else text.strip()
 
 
+def _extract_latex(text: str) -> str:
+    """Extract just the LaTeX document from \documentclass to \end{document}.
+
+    Models frequently prefix their output with prose ('Certainly! Here is...')
+    or suffix it with commentary.  Slicing to the known document boundaries
+    prevents pdflatex seeing 'C' as line 1 and failing with
+    'Missing \\begin{document}'.
+    """
+    start = text.find("\\documentclass")
+    end   = text.rfind("\\end{document}")
+    if start != -1 and end != -1:
+        return text[start : end + len("\\end{document}")].strip()
+    return text.strip()
+
+
 # ---------------------------------------------------------------------------
 # Helper: build a JSONResponse and attach a session cookie when needed
 # ---------------------------------------------------------------------------
@@ -900,7 +915,7 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
                 sid, is_new, status=500,
             )
 
-        latex = _strip_fences(raw)
+        latex = _extract_latex(_strip_fences(raw))
 
         # Require BOTH markers — missing either means the document won't compile.
         if "\\documentclass" not in latex or "\\begin{document}" not in latex:
@@ -979,7 +994,7 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
                 sid, is_new, status=500,
             )
 
-        latex = _strip_fences(raw)
+        latex = _extract_latex(_strip_fences(raw))
 
         # Require BOTH markers — a document missing either will fail to compile.
         # Previously used `and` so a response with \documentclass but no
