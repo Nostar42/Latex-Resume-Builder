@@ -75,6 +75,21 @@ SESSION_CLEANUP_INTERVAL = 3600   # run the janitor once per hour
 _rl_store: dict[str, list[float]] = defaultdict(list)
 _rl_lock = asyncio.Lock()   # created fresh in the event loop via _rate_limit()
 
+# ---------------------------------------------------------------------------
+# Per-session AI performance metrics
+# Keyed by session_id → list of metric dicts (capped at _METRICS_CAP).
+# Stored in memory only; cleared on server restart.
+# ---------------------------------------------------------------------------
+_METRICS_CAP = 200
+_metrics: dict[str, list[dict]] = defaultdict(list)
+
+
+def _record_metric(sid: str, entry: dict) -> None:
+    lst = _metrics[sid]
+    lst.append(entry)
+    if len(lst) > _METRICS_CAP:
+        _metrics[sid] = lst[-_METRICS_CAP:]
+
 _RL_WINDOW  = 60.0   # sliding window width in seconds
 _RL_CHAT    = 10
 _RL_COMPILE = 20
@@ -385,8 +400,10 @@ def _apply(content: str, edits: list) -> dict:
 
 # ---------------------------------------------------------------------------
 # LLM client -- Ollama now; set USE_VLLM=true + LLM_BASE_URL to switch
+# Returns (content, perf_dict | None).  perf_dict contains Ollama's native
+# timing and token stats; it is None when using vLLM (not exposed there).
 # ---------------------------------------------------------------------------
-async def _llm(system: str, messages: list) -> str:
+async def _llm(system: str, messages: list) -> tuple[str, dict | None]:
     model = _active_model()
     msgs  = [{"role": "system", "content": system}] + messages
 
@@ -406,8 +423,26 @@ async def _llm(system: str, messages: list) -> str:
             })
         r.raise_for_status()
         data = r.json()
-        return (data["choices"][0]["message"]["content"] if USE_VLLM
-                else data["message"]["content"])
+        content = (data["choices"][0]["message"]["content"] if USE_VLLM
+                   else data["message"]["content"])
+
+        # Extract Ollama's native performance counters from the response body.
+        # These are only present on the Ollama path (stream:false returns them
+        # in the single response object).  vLLM does not expose them.
+        perf: dict | None = None
+        if not USE_VLLM:
+            eval_dur_ns  = data.get("eval_duration") or 0
+            total_dur_ns = data.get("total_duration") or 0
+            gen_tok      = data.get("eval_count") or 0
+            perf = {
+                "model":         data.get("model", model),
+                "prompt_tokens": data.get("prompt_eval_count") or 0,
+                "gen_tokens":    gen_tok,
+                "total_ms":      round(total_dur_ns / 1_000_000),
+                "tokens_per_sec": (round(gen_tok / (eval_dur_ns / 1e9), 1)
+                                   if eval_dur_ns > 0 else 0),
+            }
+        return content, perf
 
 
 # ---------------------------------------------------------------------------
@@ -597,11 +632,72 @@ async def post_model(request: Request):
         return JSONResponse({"ok": False, "error": "Ollama isn't running."})
 
 
+@app.get("/api/metrics")
+async def get_metrics(request: Request, session_id: Optional[str] = Cookie(None)):
+    """Return per-session AI performance metrics + aggregate summary."""
+    if not await _rate_limit(request, _RL_API): return _too_many()
+    if not _valid_sid(session_id):
+        return JSONResponse({"entries": [], "summary": {}})
+
+    entries: list[dict] = _metrics.get(session_id, [])  # type: ignore[arg-type]
+    if not entries:
+        return JSONResponse({"entries": [], "summary": {}})
+
+    total = len(entries)
+
+    # Compile success rate (only entries that attempted a compile)
+    attempted  = [e for e in entries if e.get("compile_ok") is not None]
+    compiled   = [e for e in attempted if e["compile_ok"] is True]
+    compile_rate = (round(len(compiled) / len(attempted) * 100, 1)
+                    if attempted else None)
+
+    # Average wall-clock response time
+    elapsed_vals = [e["elapsed_ms"] for e in entries if e.get("elapsed_ms")]
+    avg_elapsed_ms = round(sum(elapsed_vals) / len(elapsed_vals)) if elapsed_vals else 0
+
+    # Average token generation speed
+    tok_s_vals = [e["tokens_per_sec"] for e in entries if e.get("tokens_per_sec")]
+    avg_tok_s  = round(sum(tok_s_vals) / len(tok_s_vals), 1) if tok_s_vals else 0
+
+    # Total tokens generated this session
+    total_tokens = sum(e.get("gen_tokens", 0) for e in entries)
+
+    # Per-model breakdown
+    seen_models: dict[str, list[dict]] = {}
+    for e in entries:
+        m = e.get("model", "unknown")
+        seen_models.setdefault(m, []).append(e)
+    by_model = []
+    for model_name, mes in sorted(seen_models.items(),
+                                  key=lambda kv: len(kv[1]), reverse=True):
+        m_elapsed = [e["elapsed_ms"] for e in mes if e.get("elapsed_ms")]
+        m_tok_s   = [e["tokens_per_sec"] for e in mes if e.get("tokens_per_sec")]
+        by_model.append({
+            "model":              model_name,
+            "count":              len(mes),
+            "avg_elapsed_ms":     round(sum(m_elapsed)/len(m_elapsed)) if m_elapsed else 0,
+            "avg_tokens_per_sec": round(sum(m_tok_s)/len(m_tok_s), 1) if m_tok_s else 0,
+        })
+
+    summary = {
+        "total":              total,
+        "compile_rate":       compile_rate,
+        "avg_elapsed_ms":     avg_elapsed_ms,
+        "avg_tokens_per_sec": avg_tok_s,
+        "total_tokens":       total_tokens,
+        "by_model":           by_model,
+    }
+    return JSONResponse({"entries": entries[-50:], "summary": summary})
+
+
 @app.post("/api/chat")
 async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
     if not await _rate_limit(request, _RL_CHAT): return _too_many()
     sid, is_new = _resolve(session_id)
     _init_session(sid)
+
+    t0: float = time.monotonic()    # wall-clock start for elapsed_ms
+    llm_perf: dict | None = None    # filled from the primary _llm() call
 
     body     = await request.json()
     messages = body.get("messages", [])[-20:]   # cap at 20 to avoid context overflow
@@ -610,11 +706,35 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
     resume = tex.read_text(encoding="utf-8") if tex.exists() else ""
     system = _CHAT_SYS.format(resume=resume)
 
-    # Call the LLM
+    # ── inline helper: record metric + build response ─────────────────────
+    def _finish(data: dict, *, edit_ok: bool, compile_ok: bool | None) -> JSONResponse:
+        elapsed_ms = round((time.monotonic() - t0) * 1000)
+        entry: dict = {
+            "ts":            round(time.time()),
+            "model":         (llm_perf or {}).get("model", _active_model()),
+            "elapsed_ms":    elapsed_ms,
+            "prompt_tokens": (llm_perf or {}).get("prompt_tokens", 0),
+            "gen_tokens":    (llm_perf or {}).get("gen_tokens", 0),
+            "tokens_per_sec":(llm_perf or {}).get("tokens_per_sec", 0),
+            "edit_ok":       edit_ok,
+            "compile_ok":    compile_ok,
+        }
+        _record_metric(sid, entry)
+        # Perf summary sent back to the browser for the per-message badge
+        perf_out = {
+            "elapsed_s":      round(elapsed_ms / 1000, 1),
+            "gen_tokens":     entry["gen_tokens"],
+            "tokens_per_sec": entry["tokens_per_sec"],
+            "compile_ok":     compile_ok,
+        }
+        return _resp({**data, "perf": perf_out}, sid, is_new)
+
+    # ── Call the LLM ──────────────────────────────────────────────────────
     try:
-        reply = await _llm(system, messages)
+        reply, llm_perf = await _llm(system, messages)
     except Exception:
         model = _active_model()
+        # Connection failure: don't record a metric (no useful perf data)
         return _resp(
             {"message": "", "updated": False,
              "error": f"Can't reach the model at {LLM_BASE_URL}. "
@@ -625,10 +745,12 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
     parsed = _parse(reply)
 
     if not parsed["edits"]:
-        return _resp({"message": parsed["message"], "updated": False, "error": None},
-                     sid, is_new)
+        return _finish(
+            {"message": parsed["message"], "updated": False, "error": None},
+            edit_ok=False, compile_ok=None,
+        )
 
-    # Apply edits; one corrective retry when SEARCH text isn't found
+    # ── Apply edits; one corrective retry when SEARCH text isn't found ────
     applied = _apply(resume, parsed["edits"])
     if not applied["ok"]:
         try:
@@ -639,7 +761,7 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
                             "Copy the exact text from the current resume.tex (shown above) "
                             "and try again."},
             ]
-            r2 = await _llm(system, retry)
+            r2, _ = await _llm(system, retry)   # discard retry perf stats
             p2 = _parse(r2)
             if p2["edits"]:
                 a2 = _apply(resume, p2["edits"])
@@ -649,14 +771,14 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
             pass
 
     if not applied["ok"]:
-        return _resp(
+        return _finish(
             {"message": f"{parsed['message']}\n\n"
                         "[!] Couldn't locate the text to change. Try rephrasing.",
              "updated": False, "error": None},
-            sid, is_new,
+            edit_ok=False, compile_ok=None,
         )
 
-    # Write + compile; one AI repair attempt on compile failure
+    # ── Write + compile; one AI repair attempt on compile failure ─────────
     tex.write_text(applied["content"], encoding="utf-8")
     c = await _compile(sid)
 
@@ -664,8 +786,8 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
         broken     = tex.read_text(encoding="utf-8")
         fix_system = _FIX_SYS.format(resume=broken, error=c["error"])
         try:
-            fr = await _llm(fix_system,
-                            [{"role": "user", "content": "Fix the compile error."}])
+            fr, _ = await _llm(fix_system,
+                               [{"role": "user", "content": "Fix the compile error."}])
             fp = _parse(fr)
             if fp["edits"]:
                 fa = _apply(broken, fp["edits"])
@@ -680,6 +802,8 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
         msg = (f"{parsed['message']}\n\n"
                f"[!] That change wouldn't compile, so I kept the previous version.\n"
                f"{c['error']}")
-        return _resp({"message": msg, "updated": False, "error": None}, sid, is_new)
+        return _finish({"message": msg, "updated": False, "error": None},
+                       edit_ok=True, compile_ok=False)
 
-    return _resp({"message": parsed["message"], "updated": True, "error": None}, sid, is_new)
+    return _finish({"message": parsed["message"], "updated": True, "error": None},
+                   edit_ok=True, compile_ok=True)
