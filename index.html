@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Resume Builder</title>
+  <title>AI Testing Zone — LaTeX</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -134,6 +134,19 @@
     .perf-badge .ok  { color: var(--good); }
     .perf-badge .bad { color: var(--bad); }
 
+    /* ── Image attachment preview ── */
+    #img-preview {
+      display: none; align-items: center; gap: 10px;
+      padding: 7px 12px; background: #13131a;
+      border-top: 1px solid var(--line); flex-shrink: 0;
+    }
+    #img-preview.show { display: flex; }
+    #img-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); flex-shrink: 0; }
+    .img-meta { flex: 1; min-width: 0; }
+    .img-filename { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .img-hint { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+    #btn-attach { padding: 10px 13px; font-size: 15px; }
+
     /* ── Metrics panel (right-side drawer) ── */
     #metrics-drawer {
       position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 96vw);
@@ -221,7 +234,7 @@
 
 <header>
   <div class="dot"></div>
-  <h1>Resume Builder</h1>
+  <h1>AI Testing Zone — LaTeX</h1>
   <div class="spacer"></div>
   <select id="model-select" class="model-select" onchange="changeModel(this.value)" title="Local AI model"></select>
   <button class="btn accent" onclick="openTemplates()">Templates</button>
@@ -241,16 +254,31 @@
 
   <div id="chat">
     <div class="messages" id="messages">
-      <div class="msg assistant">Hi! Pick a template above, then tell me what to change and the PDF updates. Try:
+      <div class="msg assistant">AI Testing Zone — LaTeX Edition
 
-• "Set my name to Jordan Lee and title to Product Designer"
-• "Fill in my job at Acme Corp as a Software Engineer, 2021–present"
-• "Move the Skills section above Education"
-• "Make my name bigger and the accent color teal"</div>
+📎 Attach an image or scan of any document → the AI recreates it as LaTeX → PDF compiles instantly.
+
+Or pick a template and use chat to edit it:
+• "Change the title to Annual Report 2025"
+• "Add a new section called Methodology with three bullet points"
+• "Convert to two-column layout"
+• "Make all headings blue and increase font size to 14pt"
+
+Switch models in the dropdown to compare output quality and speed. Use 📊 Metrics to benchmark each one.</div>
       <div class="typing" id="typing"><span></span><span></span><span></span></div>
     </div>
+    <div id="img-preview">
+      <img id="img-thumb" src="" alt="">
+      <div class="img-meta">
+        <div class="img-filename" id="img-filename"></div>
+        <div class="img-hint">Vision model will recreate this as LaTeX → PDF</div>
+      </div>
+      <button class="btn" onclick="removeImage()">✕</button>
+    </div>
     <div class="input-row">
-      <textarea id="chat-input" placeholder="Tell the AI what to change…" rows="1"
+      <input type="file" id="img-upload" accept="image/*" style="display:none" onchange="attachImage(event)">
+      <button class="btn" id="btn-attach" onclick="document.getElementById('img-upload').click()" title="Attach image — AI recreates it as LaTeX PDF">📎</button>
+      <textarea id="chat-input" placeholder="Describe a change, or attach an image to recreate it as LaTeX…" rows="1"
         onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
       <button class="btn" id="send" onclick="sendMessage()">Send</button>
     </div>
@@ -301,6 +329,28 @@
 <script>
   let history = [];
   let busy = false;
+  let attachedImage = null;  // { base64, filename } when user picks a file
+
+  // ── Image attachment ──
+  function attachImage(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';  // reset so same file can be re-selected
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const dataUrl = evt.target.result;
+      attachedImage = { base64: dataUrl.split(',')[1], filename: file.name };
+      document.getElementById('img-thumb').src = dataUrl;
+      document.getElementById('img-filename').textContent = file.name;
+      document.getElementById('img-preview').classList.add('show');
+    };
+    reader.readAsDataURL(file);
+  }
+  function removeImage() {
+    attachedImage = null;
+    document.getElementById('img-preview').classList.remove('show');
+    document.getElementById('img-thumb').src = '';
+  }
 
   // ── PDF ──
   function reloadPdf() {
@@ -323,14 +373,24 @@
     busy = true;
     input.value = ''; autoResize(input);
     document.getElementById('send').disabled = true;
-    addMsg('user', text);
-    history.push({ role: 'user', content: text });
+
+    // Capture and clear attachment before async work
+    const img = attachedImage;
+    if (img) removeImage();
+
+    // Show user message; if image attached, note it in the bubble
+    const userLabel = img ? text + (text ? '\n' : '') + '[📎 ' + img.filename + ']' : text;
+    addMsg('user', userLabel);
+    history.push({ role: 'user', content: text || 'Recreate this document as LaTeX.' });
     showTyping(true);
 
     try {
+      const payload = { messages: history.slice(-20) };
+      if (img) payload.images = [img.base64];
+
       const res = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history.slice(-20) }),
+        body: JSON.stringify(payload),
       });
       if (res.status === 429) {
         showTyping(false);
@@ -659,6 +719,12 @@
     { family: 'Meta CodeLlama',   name: 'codellama:7b',        label: 'CodeLlama 7B',        star: false },
     { family: 'Meta CodeLlama',   name: 'codellama:13b',       label: 'CodeLlama 13B',       star: false },
     { family: 'Meta CodeLlama',   name: 'codellama:34b',       label: 'CodeLlama 34B',       star: true  },
+    // Vision / OCR family — required for image-to-LaTeX
+    { family: 'Vision / OCR',     name: 'moondream',           label: 'Moondream 1.8B',      star: false },
+    { family: 'Vision / OCR',     name: 'llava-phi3',          label: 'LLaVA-Phi3 3.8B',    star: false },
+    { family: 'Vision / OCR',     name: 'llava',               label: 'LLaVA 7B',            star: true  },
+    { family: 'Vision / OCR',     name: 'llava:13b',           label: 'LLaVA 13B',           star: false },
+    { family: 'Vision / OCR',     name: 'minicpm-v',           label: 'MiniCPM-V 8B',        star: true  },
   ];
 
   async function loadModels() {

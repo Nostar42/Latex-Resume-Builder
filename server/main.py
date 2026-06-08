@@ -56,7 +56,8 @@ PDFLATEX = (
 )
 
 MAX_COMPILES = 2   # concurrent pdflatex processes
-MAX_SOURCE_BYTES = 500_000  # 500 KB -- guard against runaway uploads
+MAX_SOURCE_BYTES = 500_000   # 500 KB -- guard against runaway source uploads
+MAX_IMAGE_BYTES  = 8_000_000 # ~6 MB image (base64) — enough for a scanned page
 
 # Session lifetime: how long a session can sit idle before it is deleted.
 # Override with SESSION_MAX_AGE env var (seconds).  Default = 24 h.
@@ -403,9 +404,20 @@ def _apply(content: str, edits: list) -> dict:
 # Returns (content, perf_dict | None).  perf_dict contains Ollama's native
 # timing and token stats; it is None when using vLLM (not exposed there).
 # ---------------------------------------------------------------------------
-async def _llm(system: str, messages: list) -> tuple[str, dict | None]:
+async def _llm(system: str, messages: list,
+               images: list[str] | None = None) -> tuple[str, dict | None]:
+    """Call the active model.  images is a list of base64-encoded image strings
+    (for vision models); they are attached to the last user message."""
     model = _active_model()
     msgs  = [{"role": "system", "content": system}] + messages
+
+    # Attach images to the last user message when provided
+    if images and msgs and msgs[-1].get("role") == "user":
+        msgs[-1] = {**msgs[-1], "images": images}
+
+    # Use a larger context window for image-to-LaTeX tasks so the model can
+    # output a complete document without being cut off.
+    num_ctx = 16384 if images else 8192
 
     # FIX #10: separate connect vs. read timeout.
     async with httpx.AsyncClient(timeout=_LLM_TIMEOUT) as client:
@@ -419,7 +431,7 @@ async def _llm(system: str, messages: list) -> tuple[str, dict | None]:
             # Ollama native endpoint (supports num_ctx for context window)
             r = await client.post(f"{OLLAMA_URL}/api/chat", json={
                 "model": model, "messages": msgs, "stream": False,
-                "options": {"temperature": 0.1, "num_ctx": 8192},
+                "options": {"temperature": 0.1, "num_ctx": num_ctx},
             })
         r.raise_for_status()
         data = r.json()
@@ -449,7 +461,7 @@ async def _llm(system: str, messages: list) -> tuple[str, dict | None]:
 # Prompts
 # ---------------------------------------------------------------------------
 _CHAT_SYS = """\
-You edit a LaTeX resume by making small, targeted text replacements.
+You edit a LaTeX document by making small, targeted text replacements.
 
 When the user asks for a change, reply with ONE short sentence then one or more edit blocks:
 
@@ -462,14 +474,14 @@ the replacement snippet
 Always include ALL THREE marker lines AND the SEARCH snippet.
 The snippet must appear verbatim in the file and be unique enough to identify the spot.
 
-Worked example. User: "change the job title to Data Analyst". The file contains:
-{{\\large\\bfseries Job Title $|$ Professional Field}}
+Worked example. User: "change the section title to Methods". The file contains:
+\\section{{Introduction}}
 Your reply:
-Changed the job title to Data Analyst.
+Changed the section title to Methods.
 <<<<<<< SEARCH
-Job Title $|$ Professional Field
+\\section{{Introduction}}
 =======
-Data Analyst $|$ Professional Field
+\\section{{Methods}}
 >>>>>>> REPLACE
 
 Rules:
@@ -477,8 +489,21 @@ Rules:
 - Do NOT output the whole file, do NOT use code fences.
 - If no change is requested, reply in plain text with NO edit blocks.
 
-Current resume.tex:
-{resume}"""
+Current document.tex:
+{document}"""
+
+# Prompt used when the user uploads an image and wants it recreated as LaTeX.
+# No SEARCH/REPLACE — the model outputs the whole document from scratch.
+_CREATE_SYS = """\
+You are a LaTeX expert. Recreate the document shown in the image as a complete, compilable LaTeX source file.
+
+Rules:
+- Output ONLY raw LaTeX, starting with \\documentclass and ending with \\end{{document}}.
+- Do NOT wrap in markdown code fences (no ``` or ```latex).
+- Do NOT add any explanation, commentary, or preamble text before \\documentclass.
+- Reproduce the layout, structure, fonts, and content as faithfully as possible.
+- Use only standard packages (geometry, fontenc, inputenc, amsmath, graphicx, etc.).
+- The document must compile cleanly with pdflatex -no-shell-escape."""
 
 _FIX_SYS = """\
 Fix the LaTeX compile error below using SEARCH/REPLACE blocks only. Do not output the whole file.
@@ -489,11 +514,18 @@ verbatim text from the file
 corrected text
 >>>>>>> REPLACE
 
-resume.tex:
-{resume}
+document.tex:
+{document}
 
 pdflatex error:
 {error}"""
+
+# Strips ```latex ... ``` or ``` ... ``` fences that vision models sometimes add.
+_FENCE_RX = re.compile(r"^```[a-zA-Z]*\n(.*?)\n```\s*$", re.DOTALL)
+
+def _strip_fences(text: str) -> str:
+    m = _FENCE_RX.match(text.strip())
+    return m.group(1).strip() if m else text.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -700,15 +732,24 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
     sid, is_new = _resolve(session_id)
     _init_session(sid)
 
-    t0: float = time.monotonic()    # wall-clock start for elapsed_ms
-    llm_perf: dict | None = None    # filled from the primary _llm() call
+    t0: float = time.monotonic()
+    llm_perf: dict | None = None
 
     body     = await request.json()
-    messages = body.get("messages", [])[-20:]   # cap at 20 to avoid context overflow
+    messages = body.get("messages", [])[-20:]
+    images   = body.get("images") or []   # list of base64 strings from image upload
 
-    tex    = _tex(sid)
-    resume = tex.read_text(encoding="utf-8") if tex.exists() else ""
-    system = _CHAT_SYS.format(resume=resume)
+    # Guard against oversized image payloads
+    total_img_bytes = sum(len(b) for b in images)
+    if total_img_bytes > MAX_IMAGE_BYTES:
+        return _resp(
+            {"message": "", "updated": False,
+             "error": f"Image too large ({total_img_bytes // 1_000_000} MB). Max ~6 MB."},
+            sid, is_new, status=400,
+        )
+
+    tex      = _tex(sid)
+    document = tex.read_text(encoding="utf-8") if tex.exists() else ""
 
     # ── inline helper: record metric + build response ─────────────────────
     def _finish(data: dict, *, edit_ok: bool, compile_ok: bool | None) -> JSONResponse:
@@ -724,7 +765,6 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
             "compile_ok":    compile_ok,
         }
         _record_metric(entry)
-        # Perf summary sent back to the browser for the per-message badge
         perf_out = {
             "elapsed_s":      round(elapsed_ms / 1000, 1),
             "gen_tokens":     entry["gen_tokens"],
@@ -733,12 +773,83 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
         }
         return _resp({**data, "perf": perf_out}, sid, is_new)
 
-    # ── Call the LLM ──────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════
+    # IMAGE-TO-LaTeX CREATE MODE
+    # When images are attached the model generates a complete new document
+    # from scratch — no SEARCH/REPLACE, full document output.
+    # ══════════════════════════════════════════════════════════════════════
+    if images:
+        try:
+            raw, llm_perf = await _llm(_CREATE_SYS, messages, images=images)
+        except Exception:
+            model = _active_model()
+            return _resp(
+                {"message": "", "updated": False,
+                 "error": (f"Can't reach the model at {LLM_BASE_URL}. "
+                           f"Make sure Ollama is running and the active model supports vision "
+                           f"(llava, minicpm-v, moondream). Try: ollama run llava")},
+                sid, is_new, status=500,
+            )
+
+        latex = _strip_fences(raw)
+
+        # Sanity-check: must look like LaTeX
+        if "\\documentclass" not in latex and "\\begin{document}" not in latex:
+            return _finish(
+                {"message": ("The model didn't return LaTeX. "
+                             "Make sure you're using a vision-capable model "
+                             "(llava, minicpm-v, moondream) and try again.\n\n"
+                             + raw[:500]),
+                 "updated": False, "error": None},
+                edit_ok=False, compile_ok=None,
+            )
+
+        tex.write_text(latex, encoding="utf-8")
+        c = await _compile(sid)
+
+        if c["ok"]:
+            shutil.copy2(tex, _last(sid))
+            return _finish(
+                {"message": "Document recreated from image and compiled successfully.", "updated": True, "error": None},
+                edit_ok=True, compile_ok=True,
+            )
+        # Try one auto-fix pass on compile failure
+        broken     = tex.read_text(encoding="utf-8")
+        fix_system = _FIX_SYS.format(document=broken, error=c["error"])
+        try:
+            fr, _ = await _llm(fix_system,
+                               [{"role": "user", "content": "Fix the compile error."}])
+            fp = _parse(fr)
+            if fp["edits"]:
+                fa = _apply(broken, fp["edits"])
+                if fa["ok"]:
+                    tex.write_text(fa["content"], encoding="utf-8")
+                    c = await _compile(sid)
+                    if c["ok"]:
+                        shutil.copy2(tex, _last(sid))
+                        return _finish(
+                            {"message": "Document recreated from image (with auto-fix) and compiled.", "updated": True, "error": None},
+                            edit_ok=True, compile_ok=True,
+                        )
+        except Exception:
+            pass
+        await _revert(sid)
+        return _finish(
+            {"message": (f"Generated LaTeX from image but it wouldn't compile. "
+                         f"Try a different vision model or edit the source manually.\n\n{c['error']}"),
+             "updated": False, "error": None},
+            edit_ok=True, compile_ok=False,
+        )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # STANDARD EDIT MODE  (SEARCH/REPLACE)
+    # ══════════════════════════════════════════════════════════════════════
+    system = _CHAT_SYS.format(document=document)
+
     try:
         reply, llm_perf = await _llm(system, messages)
     except Exception:
         model = _active_model()
-        # Connection failure: don't record a metric (no useful perf data)
         return _resp(
             {"message": "", "updated": False,
              "error": f"Can't reach the model at {LLM_BASE_URL}. "
@@ -754,21 +865,21 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
             edit_ok=False, compile_ok=None,
         )
 
-    # ── Apply edits; one corrective retry when SEARCH text isn't found ────
-    applied = _apply(resume, parsed["edits"])
+    # Apply edits; one corrective retry when SEARCH text isn't found
+    applied = _apply(document, parsed["edits"])
     if not applied["ok"]:
         try:
             retry = messages + [
                 {"role": "assistant", "content": reply},
                 {"role": "user",
                  "content": "Your SEARCH text was not found. "
-                            "Copy the exact text from the current resume.tex (shown above) "
+                            "Copy the exact text from the current document.tex (shown above) "
                             "and try again."},
             ]
-            r2, _ = await _llm(system, retry)   # discard retry perf stats
+            r2, _ = await _llm(system, retry)
             p2 = _parse(r2)
             if p2["edits"]:
-                a2 = _apply(resume, p2["edits"])
+                a2 = _apply(document, p2["edits"])
                 if a2["ok"]:
                     applied, parsed = a2, p2
         except Exception:
@@ -782,13 +893,13 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
             edit_ok=False, compile_ok=None,
         )
 
-    # ── Write + compile; one AI repair attempt on compile failure ─────────
+    # Write + compile; one AI repair attempt on compile failure
     tex.write_text(applied["content"], encoding="utf-8")
     c = await _compile(sid)
 
     if not c["ok"]:
         broken     = tex.read_text(encoding="utf-8")
-        fix_system = _FIX_SYS.format(resume=broken, error=c["error"])
+        fix_system = _FIX_SYS.format(document=broken, error=c["error"])
         try:
             fr, _ = await _llm(fix_system,
                                [{"role": "user", "content": "Fix the compile error."}])
