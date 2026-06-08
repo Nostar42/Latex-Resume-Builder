@@ -231,3 +231,98 @@ To host this on the internet you would need:
 4. Replace Ollama with a faster backend (vLLM on a GPU, or a cloud API like Groq)
 
 The Python server (`server/main.py`) and the nginx config are already structured for this — `USE_VLLM=true` and `LLM_BASE_URL` switch the AI backend with no code changes.
+
+---
+
+## Model variants & GPU requirements
+
+Disk sizes are at default 4-bit quantisation. **Min VRAM** is what you need to load the model entirely onto the GPU — less than that and Ollama offloads layers to system RAM, making responses 5–20× slower.
+
+### All supported models
+
+| Model | Family | Mode | Disk | Min VRAM |
+|-------|--------|------|------|----------|
+| `qwen2.5-coder:0.5b` | Qwen2.5-Coder | Resume / Math | 0.4 GB | 2 GB |
+| `deepseek-r1:1.5b` | DeepSeek-R1 | Resume / Math | 1.1 GB | 3 GB |
+| `qwen2.5-coder:1.5b` | Qwen2.5-Coder | Resume / Math | 1.0 GB | 3 GB |
+| `moondream` | Vision / OCR | Image → LaTeX | 1.7 GB | 3 GB |
+| `llava-phi3` | Vision / OCR | Image → LaTeX | 2.9 GB | 4 GB |
+| `phi4-mini` | Microsoft Phi-4 | Resume / Math | 2.5 GB | 4 GB |
+| `qwen2.5-coder:3b` ⭐ | Qwen2.5-Coder | Resume / Math | 1.9 GB | 4 GB |
+| `codellama:7b` | Meta CodeLlama | Resume / Math | 3.8 GB | 6 GB |
+| `deepseek-r1:7b` | DeepSeek-R1 | Resume / Math | 4.7 GB | 6 GB |
+| `llava` | Vision / OCR | Image → LaTeX | 4.7 GB | 6 GB |
+| `mistral` | Mistral | Resume / Math | 4.1 GB | 6 GB |
+| `qwen2.5-coder:7b` | Qwen2.5-Coder | Resume / Math | 4.7 GB | 6 GB |
+| `deepseek-r1:8b` | DeepSeek-R1 | Resume / Math | 5.2 GB | 8 GB |
+| `minicpm-v` | Vision / OCR | Image → LaTeX | 5.5 GB | 8 GB |
+| `codellama:13b` | Meta CodeLlama | Resume / Math | 7.4 GB | 10 GB |
+| `llava:13b` | Vision / OCR | Image → LaTeX | 8.0 GB | 10 GB |
+| `deepseek-r1:14b` | DeepSeek-R1 | Resume / Math | 9.0 GB | 12 GB |
+| `phi4` | Microsoft Phi-4 | Resume / Math | 9.1 GB | 12 GB |
+| `qwen2.5-coder:14b` | Qwen2.5-Coder | Resume / Math | 9.0 GB | 12 GB |
+| `mistral-small` | Mistral | Resume / Math | 14 GB | 16 GB |
+| `deepseek-r1:32b` | DeepSeek-R1 | Resume / Math | 20 GB | 24 GB |
+| `qwen2.5-coder:32b` | Qwen2.5-Coder | Resume / Math | 20 GB | 24 GB |
+| `codellama:34b` | Meta CodeLlama | Resume / Math | 19 GB | 24 GB |
+| `deepseek-r1:70b` | DeepSeek-R1 | Resume / Math | 43 GB | 48 GB |
+| `llama3.3` | Meta Llama 3.3 | Resume / Math | 43 GB | 48 GB |
+
+---
+
+### NVIDIA GeForce
+
+| GPU | VRAM | Largest model that fits fully on GPU |
+|-----|------|--------------------------------------|
+| RTX 4090 | 24 GB | `codellama:34b`, `qwen2.5-coder:32b`, `deepseek-r1:32b` |
+| RTX 3090 / 3090 Ti | 24 GB | `codellama:34b`, `qwen2.5-coder:32b`, `deepseek-r1:32b` |
+| RTX 4080 / 4080 Super | 16 GB | `phi4`, `qwen2.5-coder:14b`, `deepseek-r1:14b` |
+| RTX 4070 Ti Super | 16 GB | `phi4`, `qwen2.5-coder:14b`, `deepseek-r1:14b` |
+| RTX 4060 Ti 16GB | 16 GB | `phi4`, `qwen2.5-coder:14b`, `deepseek-r1:14b` |
+| RTX 3080 Ti | 12 GB | `codellama:13b`, `llava:13b` |
+| RTX 4070 / 4070 Super / 4070 Ti | 12 GB | `codellama:13b`, `llava:13b` |
+| RTX 3060 12GB | 12 GB | `codellama:13b`, `llava:13b` |
+| RTX 3080 10GB | 10 GB | `codellama:13b`, `llava:13b` |
+| RTX 4060 / 4060 Ti 8GB | 8 GB | `deepseek-r1:7b`, `qwen2.5-coder:7b`, `mistral`, `llava` |
+| RTX 3060 Ti / 3070 / 3070 Ti | 8 GB | `deepseek-r1:7b`, `qwen2.5-coder:7b`, `mistral`, `llava` |
+| RTX 3050 / 3050 Ti | 8 GB | `deepseek-r1:7b`, `qwen2.5-coder:7b`, `mistral`, `llava` |
+| RTX 3060 Laptop | 6 GB | `qwen2.5-coder:7b`, `mistral`, `codellama:7b` |
+| GTX 1660 / 1660 Super / Ti | 6 GB | `qwen2.5-coder:7b`, `mistral`, `codellama:7b` |
+| GTX 1060 6GB | 6 GB | `qwen2.5-coder:7b`, `mistral`, `codellama:7b` |
+| GTX 1650 / 1650 Super | 4 GB | `qwen2.5-coder:3b`, `phi4-mini`, `llava-phi3` |
+
+---
+
+### AMD Radeon
+
+| GPU | VRAM | Largest model that fits fully on GPU |
+|-----|------|--------------------------------------|
+| RX 7900 XTX | 24 GB | `codellama:34b`, `qwen2.5-coder:32b`, `deepseek-r1:32b` |
+| RX 7900 XT | 20 GB | `codellama:34b`, `qwen2.5-coder:32b`, `deepseek-r1:32b` |
+| RX 7900 GRE / 6900 XT / 6950 XT | 16 GB | `phi4`, `qwen2.5-coder:14b`, `deepseek-r1:14b` |
+| RX 7800 XT / 6800 XT | 16 GB | `phi4`, `qwen2.5-coder:14b`, `deepseek-r1:14b` |
+| RX 7700 XT / 6700 XT | 12 GB | `codellama:13b`, `llava:13b` |
+| RX 6700 | 10 GB | `codellama:13b`, `llava:13b` |
+| RX 7600 / 6600 XT / 5700 XT | 8 GB | `deepseek-r1:7b`, `qwen2.5-coder:7b`, `mistral`, `llava` |
+| RX 6600 | 8 GB | `deepseek-r1:7b`, `qwen2.5-coder:7b`, `mistral`, `llava` |
+| RX 5500 XT / 580 8GB | 8 GB | `deepseek-r1:7b`, `qwen2.5-coder:7b`, `mistral`, `llava` |
+
+> AMD GPU support requires ROCm. Works best on Linux — Windows ROCm support is limited. Check [ollama.com](https://ollama.com) for current status.
+
+---
+
+### Apple Silicon (unified memory)
+
+Apple Silicon shares memory between CPU and GPU. The full system RAM is available to Ollama — subtract ~3 GB for macOS overhead on 8 GB systems.
+
+| Chip | Memory | Largest model that fits |
+|------|--------|------------------------|
+| M2 Ultra / M3 Ultra | 128–192 GB | All models including 70B |
+| M2 Max / M3 Max | 36–96 GB | 70B on 48 GB+; up to 32B on 36 GB |
+| M1 Max | 32–64 GB | Up to 32B on 32 GB; 70B on 64 GB |
+| M1 Pro / M2 Pro / M3 Pro / M4 Pro | 16–48 GB | Up to 32B on 48 GB; up to 14B on 32 GB; up to 13B on 16 GB |
+| M1 / M2 / M3 / M4 (24 GB) | 24 GB | `codellama:34b`, `qwen2.5-coder:32b` |
+| M1 / M2 / M3 / M4 (16 GB) | 16 GB | `phi4`, `qwen2.5-coder:14b`, `deepseek-r1:14b` |
+| M1 / M2 / M3 / M4 (8 GB) | ~5 GB free | `qwen2.5-coder:3b`, `phi4-mini` |
+
+> Apple Silicon is exceptionally efficient for inference — a 7B model on an M2 often matches or beats the same model on an RTX 3070.
