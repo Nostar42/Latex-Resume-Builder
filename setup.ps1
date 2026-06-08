@@ -109,3 +109,6 @@ Write-Host "  Setup complete!" -ForegroundColor Green
 Write-Host "  Launch with:  .\start.bat" -ForegroundColor DarkGray
 Write-Host "  Then open:    http://localhost:5000" -ForegroundColor DarkGray
 Write-Host ""
+# Keep window open so the user can read the output before it closes.
+Write-Host "  Press any key to close..." -ForegroundColor DarkGray
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
