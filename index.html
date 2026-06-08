@@ -164,6 +164,71 @@
     .perf-badge .ok  { color: var(--good); }
     .perf-badge .bad { color: var(--bad); }
 
+    /* ── Mode placeholders (shown before first compile in each mode) ── */
+    #pdf-placeholder {
+      position: absolute; inset: 0; z-index: 4;
+      display: none; align-items: center; justify-content: center;
+      background: #5a5a5a;
+    }
+    #pdf-placeholder.show { display: flex; }
+
+    /* Blank A4 sheet — image mode */
+    .ph-sheet {
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 16px;
+      width: min(48%, 280px);
+      aspect-ratio: 210 / 297;
+      background: #ffffff;
+      border-radius: 2px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.35);
+      color: #bbb;
+    }
+    .ph-sheet.show { display: flex; }
+    .ph-sheet-icon { font-size: 38px; opacity: .35; line-height: 1; }
+    .ph-sheet-text { font-size: 11.5px; color: #aaa; letter-spacing: .25px; text-align: center; padding: 0 20px; }
+
+    /* Ruled notecard — math mode */
+    .ph-notecard {
+      display: none; flex-direction: column;
+      width: min(64%, 420px);
+      background: #fefce8;
+      border-radius: 3px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.3);
+      overflow: hidden;
+      position: relative;
+    }
+    .ph-notecard.show { display: flex; }
+    /* red top stripe */
+    .ph-notecard-top {
+      height: 5px;
+      background: repeating-linear-gradient(90deg, #e57373 0 40px, #ef9a9a 40px 42px, #e57373 42px);
+      flex-shrink: 0;
+    }
+    .ph-notecard-body {
+      padding: 14px 18px 18px 56px;
+      /* ruled lines */
+      background-image: repeating-linear-gradient(
+        transparent 0px, transparent 27px,
+        #d4d0a0 27px, #d4d0a0 28px
+      );
+      background-position: 0 18px;
+      position: relative; min-height: 160px;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    /* left margin line */
+    .ph-notecard-body::before {
+      content: ''; position: absolute; top: 0; left: 42px;
+      width: 1.5px; height: 100%; background: #f48fb1; opacity: .7;
+    }
+    .ph-notecard-hint {
+      font-size: 13px; color: #7a7040; font-style: italic;
+      font-family: 'Georgia', serif; line-height: 1.9;
+    }
+    .ph-notecard-eq {
+      font-size: 15px; color: #9a8c40; letter-spacing: .5px;
+      font-family: 'Georgia', serif; margin-top: 4px; opacity: .55;
+    }
+
     /* ── Image attachment preview ── */
     #img-preview {
       display: none; align-items: center; gap: 10px;
@@ -299,6 +364,24 @@
 <div class="main">
   <div id="pdf-wrap">
     <iframe id="pdf" title="Resume PDF"></iframe>
+
+    <!-- Mode placeholder overlays — visible until first compile in that mode -->
+    <div id="pdf-placeholder">
+      <!-- image mode: blank A4 sheet -->
+      <div class="ph-sheet" id="ph-sheet">
+        <span class="ph-sheet-icon">📄</span>
+        <span class="ph-sheet-text">Attach an image or scan<br>to recreate it as a PDF</span>
+      </div>
+      <!-- math mode: ruled notecard -->
+      <div class="ph-notecard" id="ph-notecard">
+        <div class="ph-notecard-top"></div>
+        <div class="ph-notecard-body">
+          <span class="ph-notecard-hint">Your step-by-step solution<br>will appear here…</span>
+          <span class="ph-notecard-eq">∫ ∑ π  →  √ · ∞</span>
+        </div>
+      </div>
+    </div>
+
     <div id="pdf-loading"><div class="spinner"></div><span id="pdf-loading-text">Compiling…</span></div>
   </div>
 
@@ -383,6 +466,29 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
   let busy = false;
   let attachedImage = null;  // { base64, filename } when user picks a file
 
+  // Track whether each mode has compiled at least one PDF this session.
+  // Resume starts true (a template PDF always exists); image/math start false.
+  const modeHasContent = { resume: true, image: false, math: false };
+
+  function syncPlaceholder() {
+    const ph        = document.getElementById('pdf-placeholder');
+    const phSheet   = document.getElementById('ph-sheet');
+    const phCard    = document.getElementById('ph-notecard');
+    if (currentMode === 'image' && !modeHasContent.image) {
+      ph.classList.add('show');
+      phSheet.classList.add('show');
+      phCard.classList.remove('show');
+    } else if (currentMode === 'math' && !modeHasContent.math) {
+      ph.classList.add('show');
+      phSheet.classList.remove('show');
+      phCard.classList.add('show');
+    } else {
+      ph.classList.remove('show');
+      phSheet.classList.remove('show');
+      phCard.classList.remove('show');
+    }
+  }
+
   // ── Image attachment ──
   function attachImage(e) {
     const file = e.target.files[0];
@@ -458,6 +564,8 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
         addMsg('assistant', data.message, data.perf);
         history.push({ role: 'assistant', content: data.message });
         if (data.updated) {
+          modeHasContent[currentMode] = true;
+          syncPlaceholder();
           addMsg('notice', '✓ PDF updated');
           showLoading(true, 'Refreshing…');
           reloadPdf();
@@ -582,6 +690,7 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
         addMsg('err', '⚠ Too many requests — please wait a moment before switching templates.');
       } else {
         const data = await res.json();
+        if (data.ok) { modeHasContent[currentMode] = true; syncPlaceholder(); }
         reloadPdf();
         addMsg('notice', data.ok ? '✓ Loaded template: ' + label : '⚠ ' + (data.error || 'Failed to load template'));
       }
@@ -629,6 +738,8 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
         const data = await res.json();
         if (data.ok) {
           setSourceStatus('Compiled ✓', false);
+          modeHasContent[currentMode] = true;
+          syncPlaceholder();
           reloadPdf();
         } else {
           setSourceStatus('Compile error (kept last good PDF):\n' + (data.error || ''), true);
@@ -806,6 +917,9 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
     }
     document.getElementById('chat-input').placeholder = cfg.placeholder || 'Describe a change…';
 
+    // Show/hide mode placeholder (blank sheet or notecard)
+    syncPlaceholder();
+
     // Reload model picker filtered to this mode's families
     loadModels();
 
@@ -824,6 +938,7 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
       attachBtn.classList.toggle('accent', cfg.showAttach);
     }
     document.getElementById('chat-input').placeholder = cfg.placeholder || 'Describe a change…';
+    syncPlaceholder();
   }
 
   // ── Model picker ──
