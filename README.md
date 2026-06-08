@@ -31,10 +31,10 @@ browser  ──HTTPS──►  nginx :5000  ──proxy──►  Uvicorn/FastAP
 | **Windows 10 / 11** | The launcher scripts are PowerShell 5.1 |
 | **MiKTeX** | Provides `pdflatex`. Download from [miktex.org](https://miktex.org) |
 | **Ollama** | Local AI runner. Download from [ollama.com](https://ollama.com) |
-| **Python 3.12+** | `setup.ps1` installs this automatically via winget |
-| **nginx for Windows** | `setup.ps1` downloads and extracts this automatically |
+| **Python 3.12+** | `setup.bat` installs this automatically via winget |
+| **nginx for Windows** | `setup.bat` downloads and extracts this automatically |
 
-> **Python and nginx are handled for you by `setup.ps1`.** You only need to install MiKTeX and Ollama yourself.
+> **Python and nginx are handled for you by `setup.bat`.** You only need to install MiKTeX and Ollama yourself.
 
 ---
 
@@ -49,66 +49,21 @@ Choose *Install for all users* and tick *Install missing packages on-the-fly* so
 
 ```powershell
 winget install Ollama.Ollama
+ollama pull qwen2.5-coder:3b   # recommended starting point (~2 GB, ~4 GB RAM)
 ```
 
-Then pull at least one model. Pick based on your available RAM:
+Pick a model based on your available RAM:
 
-**Qwen2.5-Coder** (best for code/LaTeX editing — recommended for this tool)
+| Model | Size | RAM |
+|-------|------|-----|
+| `qwen2.5-coder:1.5b` | ~1.0 GB | ~2 GB |
+| `qwen2.5-coder:3b` ⭐ | ~1.9 GB | ~4 GB |
+| `qwen2.5-coder:7b` | ~4.7 GB | ~8 GB |
+| `phi4-mini` | ~2.5 GB | ~4 GB |
+| `deepseek-r1:1.5b` | ~1.1 GB | ~2 GB |
+| `mistral` | ~4.1 GB | ~8 GB |
 
-| Model | Size on disk | RAM needed | Speed (CPU) |
-|-------|-------------|------------|-------------|
-| `qwen2.5-coder:1.5b` | ~1.0 GB | ~2 GB | Very fast |
-| `qwen2.5-coder:3b` | ~1.9 GB | ~4 GB | Fast |
-| `qwen2.5-coder:7b` | ~4.7 GB | ~8 GB | Moderate |
-| `qwen2.5-coder:14b` | ~9.0 GB | ~16 GB | Slow on CPU |
-
-**Microsoft Phi-4** (compact, strong reasoning)
-
-| Model | Size on disk | RAM needed | Speed (CPU) |
-|-------|-------------|------------|-------------|
-| `phi4-mini` | ~2.5 GB | ~4 GB | Fast |
-| `phi4` | ~9.1 GB | ~16 GB | Slow on CPU |
-
-**Mistral** (fast, general-purpose)
-
-| Model | Size on disk | RAM needed | Speed (CPU) |
-|-------|-------------|------------|-------------|
-| `mistral` | ~4.1 GB | ~8 GB | Moderate |
-| `mistral-small` | ~14 GB | ~24 GB | Slow on CPU |
-
-**DeepSeek-R1** (reasoning/chain-of-thought specialist)
-
-| Model | Size on disk | RAM needed | Speed (CPU) |
-|-------|-------------|------------|-------------|
-| `deepseek-r1:1.5b` | ~1.1 GB | ~2 GB | Very fast |
-| `deepseek-r1:7b` | ~4.7 GB | ~8 GB | Moderate |
-| `deepseek-r1:8b` | ~5.2 GB | ~8 GB | Moderate |
-| `deepseek-r1:14b` | ~9.0 GB | ~16 GB | Slow on CPU |
-| `deepseek-r1:32b` | ~20 GB | ~32 GB | Very slow; GPU recommended |
-| `deepseek-r1:70b` | ~43 GB | ~48 GB | GPU required |
-
-**Meta Llama 3.3** (general-purpose, strong reasoning)
-
-| Model | Size on disk | RAM needed | Speed (CPU) |
-|-------|-------------|------------|-------------|
-| `llama3.3` | ~43 GB | ~48 GB | Very slow on CPU; GPU recommended |
-
-**Meta CodeLlama** (code-focused, Llama-based)
-
-| Model | Size on disk | RAM needed | Speed (CPU) |
-|-------|-------------|------------|-------------|
-| `codellama:7b` | ~3.8 GB | ~8 GB | Moderate |
-| `codellama:13b` | ~7.4 GB | ~16 GB | Slow on CPU |
-| `codellama:34b` | ~19 GB | ~32 GB | Very slow on CPU; GPU recommended |
-
-```powershell
-ollama pull qwen2.5-coder:3b   # recommended starting point
-```
-
-Ollama runs as a background service after install. Start it manually if needed:
-```powershell
-ollama serve
-```
+You can switch models any time from the dropdown in the app. Run `ollama list` to see what you have installed.
 
 ### Step 3 — Clone this repository
 
@@ -119,9 +74,7 @@ cd Latex-Resume-Builder
 
 ### Step 4 — Run one-time setup
 
-```powershell
-.\setup.ps1
-```
+Double-click **`setup.bat`**.
 
 This script:
 - Installs Python 3.12 via `winget` (if not already installed)
@@ -141,21 +94,6 @@ Double-click **`start.bat`**, or from PowerShell:
 
 Then open **[http://localhost:5000](http://localhost:5000)** in your browser.
 
-The terminal shows the startup banner:
-
-```
-  LaTeX Resume Builder
-  Python   : Python 3.12.x
-  Starting : Uvicorn on 127.0.0.1:8000...
-  Uvicorn  : PID 1234
-  Starting : nginx on port 5000...
-  nginx    : PID 5678
-
-  Open:  http://localhost:5000
-
-  Press Ctrl+C to stop all services.
-```
-
 Press **Ctrl+C** in the terminal to stop both services cleanly.
 
 ---
@@ -164,21 +102,22 @@ Press **Ctrl+C** in the terminal to stop both services cleanly.
 
 | Control | What it does |
 |---------|-------------|
-| **Model** dropdown | Switch between your installed Ollama models. The choice is remembered across restarts. |
-| **Templates** button | Choose one of five designs. Loading a template replaces your current working resume. |
-| **Chat bar** (bottom) | Describe a change in plain English. The PDF refreshes automatically when an edit compiles. |
-| **LaTeX Source** button | Open a drawer to hand-edit the raw `.tex` and recompile directly. |
-| **Reset** button | Discard all edits and reload the original (unedited) template. |
-| **Download PDF** | Save the current compiled PDF. |
-| Drag the divider | Resize the PDF viewer vs. chat area. |
+| **Mode** dropdown (top-left) | Switch between Resume Builder, Math Solver, and Image → LaTeX PDF |
+| **Model** dropdown | Switch between your installed Ollama models |
+| **Templates** button | Choose one of five designs. Loading a template replaces your current working resume |
+| **Chat bar** (bottom) | Describe a change in plain English. The PDF refreshes automatically when an edit compiles |
+| **LaTeX Source** button | Open a drawer to hand-edit the raw `.tex` and recompile directly |
+| **📊 Metrics** button | View AI performance stats across all sessions |
+| **Setup Guide** button | In-app documentation and troubleshooting |
+| **Reset** button | Discard all edits and reload the original template |
+| **Download PDF** | Save the current compiled PDF |
+| Drag the divider | Resize the PDF viewer vs. chat area |
 
 **Example chat prompts:**
 - "Set my name to Jordan Lee and title to Product Designer"
 - "Add a bullet under my last job: reduced deployment time by 40%"
 - "Change the accent color to teal"
 - "Move the Skills section above Education"
-
-On a CPU-only machine expect **30–60 seconds** per edit. The first message is slower while the model loads into RAM.
 
 ---
 
@@ -200,10 +139,11 @@ All five fit on a single page and contain only placeholder data — no personal 
 
 ```
 Latex-Resume-Builder/
-├── index.html              # Web UI (PDF viewer + chat + templates + source drawer)
+├── index.html              # Web UI (PDF viewer + chat + mode switcher)
 ├── start.bat               # Double-click launcher
 ├── start.ps1               # Starts Uvicorn + nginx, handles Ctrl+C shutdown
-├── setup.ps1               # One-time installer (Python, pip packages, nginx)
+├── setup.bat               # Double-click one-time setup (use this, not setup.ps1)
+├── setup.ps1               # Setup logic (called by setup.bat)
 ├── server/
 │   ├── main.py             # FastAPI application (all API endpoints + AI + compile logic)
 │   └── requirements.txt    # Python dependencies (fastapi, uvicorn, httpx)
@@ -214,7 +154,9 @@ Latex-Resume-Builder/
 │   ├── modern.tex
 │   ├── minimalist.tex
 │   ├── sidebar.tex
-│   └── timeline.tex
+│   ├── timeline.tex
+│   ├── blank.tex
+│   └── math.tex
 ├── temp/                   # ← git-ignored; created at runtime
 │   ├── sessions/<uuid>/    # Per-browser working files (tex, pdf, log, aux)
 │   └── model.txt           # Remembers your last-used model
@@ -241,11 +183,20 @@ $env:LLM_BASE_URL = "http://localhost:8001"
 
 ## Troubleshooting
 
+**`setup.bat` flashes and disappears**  
+Right-click `setup.bat` → *Run as administrator*. If it still fails, open PowerShell manually and run:
+```powershell
+powershell -ExecutionPolicy Bypass -File setup.ps1
+```
+
+**"Python not found" when running `start.bat`**  
+`setup.bat` hasn't been run yet, or Python didn't install correctly. Run `setup.bat` first and check the output before closing the window.
+
 **"pdflatex not found"**  
-Install MiKTeX from [miktex.org](https://miktex.org) and make sure it's on your PATH. You can verify with `pdflatex --version` in PowerShell.
+Install MiKTeX from [miktex.org](https://miktex.org) and make sure it's on your PATH. Verify with `pdflatex --version` in PowerShell.
 
 **First compile is very slow or fails**  
-MiKTeX downloads missing LaTeX packages on first use. This can take 60–120 seconds. The compile timeout is set to 120 s to accommodate this. Just try again — subsequent compiles are fast.
+MiKTeX downloads missing LaTeX packages on first use. This can take 60–120 seconds. Just try again — subsequent compiles are fast.
 
 **"Ollama isn't running"** in the model dropdown  
 Start Ollama: run `ollama serve` in a separate terminal, or check that the Ollama desktop app is running in the system tray.
@@ -254,15 +205,9 @@ Start Ollama: run `ollama serve` in a separate terminal, or check that the Ollam
 Run `ollama list` to confirm your model is installed. If the list is empty, pull a model first: `ollama pull qwen2.5-coder:3b`.
 
 **Port 5000 already in use**  
-Another process is using port 5000. `start.ps1` tries to free the port automatically, but you can also run:
+`start.ps1` tries to free the port automatically, but you can also run:
 ```powershell
 Get-NetTCPConnection -LocalPort 5000 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-```
-
-**`setup.ps1` won't run**  
-Run PowerShell as Administrator, or bypass the execution policy for the one script:
-```powershell
-powershell -ExecutionPolicy Bypass -File setup.ps1
 ```
 
 ---
