@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from collections import defaultdict
@@ -55,6 +56,9 @@ PDFLATEX = (
     or r"C:\Users\hp\AppData\Local\Programs\MiKTeX\miktex\bin\x64\pdflatex.exe"
 )
 
+# Set DEV=1 to skip index.html caching so edits are served without restart.
+DEV_MODE = os.getenv("DEV", "").lower() in ("1", "true", "yes")
+
 MAX_COMPILES = 2   # concurrent pdflatex processes
 MAX_SOURCE_BYTES = 500_000   # 500 KB -- guard against runaway source uploads
 MAX_IMAGE_BYTES  = 8_000_000 # ~6 MB image (base64) — enough for a scanned page
@@ -74,7 +78,7 @@ SESSION_CLEANUP_INTERVAL = 3600   # run the janitor once per hour
 #   api     — 60  (lightweight reads)
 # ---------------------------------------------------------------------------
 _rl_store: dict[str, list[float]] = defaultdict(list)
-_rl_lock = asyncio.Lock()   # created fresh in the event loop via _rate_limit()
+_rl_lock: asyncio.Lock          # initialised inside lifespan() on the running loop
 
 # ---------------------------------------------------------------------------
 # Global AI performance metrics (all sessions combined).
@@ -103,12 +107,21 @@ async def _rate_limit(request: Request, max_requests: int) -> bool:
     rejected. Uses a per-(IP, limit-tier) sliding window stored in memory,
     so hitting the API read limit never blocks the chat or compile limits.
     """
+    global _rl_store
     ip  = (request.client.host if request.client else "unknown")
     key = f"{ip}:{max_requests}"   # different tiers get separate buckets
     now = time.monotonic()
     cutoff = now - _RL_WINDOW
 
     async with _rl_lock:
+        # Bound memory: when the store exceeds 10 000 unique IP+tier pairs
+        # (e.g. an IP-rotation flood), rebuild it keeping only keys that still
+        # have at least one timestamp inside the current window.
+        if len(_rl_store) > 10_000:
+            _rl_store = defaultdict(list, {
+                k: v for k, v in _rl_store.items()
+                if any(t > cutoff for t in v)
+            })
         times = _rl_store[key]
         # Evict timestamps outside the current window
         _rl_store[key] = [t for t in times if t > cutoff]
@@ -178,15 +191,17 @@ _UUID_RE = re.compile(
 # ---------------------------------------------------------------------------
 _sem:  asyncio.Semaphore               # created inside the running event loop
 _pool = ThreadPoolExecutor(max_workers=MAX_COMPILES, thread_name_prefix="latex")
-_index_html: bytes = b""              # FIX #15: cached at startup, not re-read per request
+_index_html: bytes = b""              # cached at startup (skipped when DEV=1)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── startup ──────────────────────────────────────────────────────────────
-    global _sem, _index_html
-    _sem        = asyncio.Semaphore(MAX_COMPILES)
-    _index_html = INDEX_PATH.read_bytes()      # cache once; file never changes at runtime
+    global _sem, _index_html, _rl_lock
+    _sem     = asyncio.Semaphore(MAX_COMPILES)
+    _rl_lock = asyncio.Lock()   # must be created on the running event loop
+    if not DEV_MODE:
+        _index_html = INDEX_PATH.read_bytes()   # cache once; re-read per-req in DEV mode
     print(f"  pdflatex  : {PDFLATEX}")
     print(f"  LLM URL   : {LLM_BASE_URL}  ({'vLLM' if USE_VLLM else 'Ollama'})")
     print(f"  Model     : {_active_model()}")
@@ -224,8 +239,12 @@ def _active_model() -> str:
     return DEFAULT_MODEL
 
 
+_model_lock = threading.Lock()
+
 def _set_model(name: str) -> None:
-    MODEL_FILE.write_text(name.strip(), encoding="utf-8")
+    # Lock guards against concurrent writes from two simultaneous model-switch requests.
+    with _model_lock:
+        MODEL_FILE.write_text(name.strip(), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -320,8 +339,20 @@ def _compile_sync(sid: str) -> dict:
     tex = _tex(sid)
     pdf = _pdf(sid)
     log = _log(sid)
+
+    # FIX (High): block \input / \include pointing to external paths before
+    # handing the source to pdflatex (-no-shell-escape blocks \write18 / RCE
+    # but does not prevent file-read via \input{C:\...}).
     try:
-        subprocess.run(
+        latex_src = tex.read_text(encoding="utf-8", errors="ignore")
+        guard_err = _guard_latex(latex_src)
+        if guard_err:
+            return {"ok": False, "error": guard_err}
+    except Exception:
+        pass  # if we can't read the source, let pdflatex produce the real error
+
+    try:
+        result = subprocess.run(
             [PDFLATEX,
              "-interaction=nonstopmode",
              "-halt-on-error",
@@ -330,7 +361,7 @@ def _compile_sync(sid: str) -> dict:
              "-no-shell-escape",
              f"-output-directory={d}", str(tex)],
             capture_output=True, cwd=str(d),
-            # FIX #11: 45 s was too short for first MiKTeX run (font-cache rebuild
+            # 45 s was too short for first MiKTeX run (font-cache rebuild
             # + on-demand package downloads can take 90-120 s).
             timeout=120,
         )
@@ -338,7 +369,8 @@ def _compile_sync(sid: str) -> dict:
         return {"ok": False,
                 "error": "Compilation timed out (120 s). A LaTeX package may be downloading -- try again."}
     except FileNotFoundError:
-        return {"ok": False, "error": f"pdflatex not found at: {PDFLATEX}"}
+        # FIX (Low): don't leak the full install path in the API response.
+        return {"ok": False, "error": "pdflatex not found. Check your MiKTeX installation."}
 
     log_text = log.read_text(encoding="utf-8", errors="ignore") if log.exists() else ""
 
@@ -346,9 +378,18 @@ def _compile_sync(sid: str) -> dict:
         shutil.copy2(tex, _last(sid))
         return {"ok": True, "error": None}
 
+    # FIX (Medium): use the return code as a fallback when the log is empty
+    # (e.g. pdflatex crashed without writing anything).
     lines = log_text.splitlines()
     hits  = [l for l in lines if l.startswith("!") or re.match(r"^l\.\d+", l)]
-    err   = "\n".join(hits[:8]) if hits else "\n".join(lines[-12:]) if lines else "Unknown error."
+    if hits:
+        err = "\n".join(hits[:8])
+    elif lines:
+        err = "\n".join(lines[-12:])
+    elif result.returncode != 0:
+        err = f"pdflatex exited with code {result.returncode} and wrote no log."
+    else:
+        err = "Unknown compilation error."
     return {"ok": False, "error": err}
 
 
@@ -380,10 +421,10 @@ _EDIT_RX = re.compile(
 
 
 def _parse(text: str) -> dict:
-    edits = [{"search": m.group(1), "replace": m.group(2)}
-             for m in _EDIT_RX.finditer(text)]
-    first = _EDIT_RX.search(text)
-    msg   = text[: first.start()].strip() if first else text.strip()
+    # Build match list once; reuse for both edits and leading-text extraction.
+    matches = list(_EDIT_RX.finditer(text))
+    edits   = [{"search": m.group(1), "replace": m.group(2)} for m in matches]
+    msg     = text[: matches[0].start()].strip() if matches else text.strip()
     return {"message": msg or "Done.", "edits": edits}
 
 
@@ -551,6 +592,37 @@ Rules:
 Current document (context for refinements — empty on first problem):
 {{document}}"""
 
+# ---------------------------------------------------------------------------
+# Security helpers
+# ---------------------------------------------------------------------------
+
+# FIX (High): validate model names before writing to disk.
+# Accepts only the characters Ollama uses in its own naming scheme.
+_MODEL_NAME_RX = re.compile(r'^[a-zA-Z0-9:._\-]{1,200}$')
+
+# FIX (High): block LaTeX \input / \include pointing to absolute paths or
+# path-traversal sequences. -no-shell-escape already blocks \write18 (RCE);
+# this closes the remaining file-disclosure vector.
+_GUARD_LATEX_RX = re.compile(
+    r'\\(?:input|include|openin)\b\s*(?:\d+\s*=\s*)?\{([^}]*)\}',
+    re.IGNORECASE,
+)
+
+def _guard_latex(latex: str) -> str | None:
+    """Return an error string if the source contains suspicious file-access
+    directives, or None if safe to compile."""
+    for m in _GUARD_LATEX_RX.finditer(latex):
+        path = m.group(1).strip()
+        if ('..' in path
+                or path.startswith('/')
+                or path.startswith('\\')
+                or re.match(r'^[A-Za-z]:[/\\]', path)):
+            return (f"Blocked: LaTeX directive references an external path "
+                    f"('{path}'). Only relative includes within the document "
+                    f"directory are allowed.")
+    return None
+
+
 # Strips ```latex ... ``` or ``` ... ``` fences that vision models sometimes add.
 _FENCE_RX = re.compile(r"^```[a-zA-Z]*\n(.*?)\n```\s*$", re.DOTALL)
 
@@ -578,8 +650,9 @@ async def root(request: Request, session_id: Optional[str] = Cookie(None)):
     _init_session(sid)
     if is_new or not _pdf(sid).exists():
         await _compile(sid)          # ensure PDF is ready before returning HTML
-    # FIX #15: serve from in-memory cache instead of reading the file every time.
-    resp = Response(_index_html, media_type="text/html; charset=utf-8")
+    # DEV=1 reads the file fresh each request so edits appear without restart.
+    html = INDEX_PATH.read_bytes() if DEV_MODE else _index_html
+    resp = Response(html, media_type="text/html; charset=utf-8")
     _set_cookie(resp, sid, is_new)
     return resp
 
@@ -680,6 +753,10 @@ async def post_model(request: Request):
     name = str(body.get("name", "")).strip()
     if not name:
         return JSONResponse({"ok": False, "error": "No model name provided."})
+    # FIX (High): reject names containing characters outside Ollama's naming
+    # scheme and cap length to prevent oversized writes to model.txt.
+    if not _MODEL_NAME_RX.match(name):
+        return JSONResponse({"ok": False, "error": "Invalid model name."})
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(connect=4, read=4, write=4, pool=4)) as client:
             r = await client.get(f"{OLLAMA_URL}/api/tags")

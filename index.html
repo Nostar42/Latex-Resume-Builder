@@ -462,6 +462,15 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
 </div>
 
 <script>
+  // Escape HTML special characters before inserting server data into innerHTML.
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   let history = [];
   let busy = false;
   let attachedImage = null;  // { base64, filename } when user picks a file
@@ -550,19 +559,20 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (res.status === 429) {
-        showTyping(false);
-        addMsg('err', '⚠ Too many requests — please wait a moment before trying again.');
-        return;
-      }
-      const data = await res.json();
+
+      // Parse body for all non-429 responses; 429 has no JSON body worth reading.
+      const is429 = res.status === 429;
+      const data  = is429 ? null : await res.json();
       showTyping(false);
 
-      if (data.error) {
+      if (is429) {
+        addMsg('err', '⚠ Too many requests — please wait a moment before trying again.');
+      } else if (data.error) {
         addMsg('err', '⚠ ' + data.error);
       } else {
         addMsg('assistant', data.message, data.perf);
-        history.push({ role: 'assistant', content: data.message });
+        // Guard: only push non-empty turns so empty strings don't pollute context.
+        if (data.message) history.push({ role: 'assistant', content: data.message });
         if (data.updated) {
           modeHasContent[currentMode] = true;
           syncPlaceholder();
@@ -675,7 +685,6 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
       addMsg('err', '⚠ Could not load templates: ' + err.message);
     }
   }
-  // FIX #8: use finally to guarantee spinner is dismissed on any outcome.
   async function loadTemplate(name, label) {
     if (!confirm('Load the "' + label + '" template? This replaces your current working resume.')) return;
     showTemplates(false);
@@ -686,7 +695,6 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
         body: JSON.stringify({ name }),
       });
       if (res.status === 429) {
-        showLoading(false);
         addMsg('err', '⚠ Too many requests — please wait a moment before switching templates.');
       } else {
         const data = await res.json();
@@ -695,8 +703,11 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
         addMsg('notice', data.ok ? '✓ Loaded template: ' + label : '⚠ ' + (data.error || 'Failed to load template'));
       }
     } catch (err) {
-      showLoading(false);
       addMsg('err', '⚠ Template load failed: ' + err.message);
+    } finally {
+      // Always dismiss the spinner — on success the iframe load event will have
+      // already fired it off; on 429 / error this is what clears it.
+      showLoading(false);
     }
   }
 
@@ -770,6 +781,14 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
     document.getElementById('metrics-drawer').classList.remove('show');
   }
 
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   async function loadMetrics() {
     const body = document.getElementById('metrics-body');
     const sub  = document.getElementById('metrics-sub');
@@ -811,8 +830,8 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
           const ms = m.avg_elapsed_ms ? (m.avg_elapsed_ms / 1000).toFixed(1) + ' s' : '—';
           const ts = m.avg_tokens_per_sec ? m.avg_tokens_per_sec + ' tok/s' : '—';
           html += `<div class="model-row">
-            <span class="model-name">${m.model}</span>
-            <span class="model-stat">${m.count} req</span>
+            <span class="model-name">${escapeHtml(m.model)}</span>
+            <span class="model-stat">${Number(m.count)} req</span>
             <span class="model-stat">${ms} avg</span>
             <span class="model-stat">${ts}</span>
           </div>`;
@@ -840,8 +859,8 @@ Switch models in the dropdown to compare output quality and speed. Use 📊 Metr
         else                             { resultHtml = '<span>—</span>'; rowClass = 'no-compile'; }
         html += `<tr class="${rowClass}">
           <td>${num}</td>
-          <td class="model-cell" title="${e.model}">${e.model}</td>
-          <td>${elS}</td><td>${tok}</td><td>${tokSec}</td>
+          <td class="model-cell" title="${escapeHtml(e.model)}">${escapeHtml(e.model)}</td>
+          <td>${elS}</td><td>${Number(e.gen_tokens) || '—'}</td><td>${tokSec}</td>
           <td>${resultHtml}</td>
         </tr>`;
       });

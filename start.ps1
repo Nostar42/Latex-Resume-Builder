@@ -55,7 +55,19 @@ $uvProc = Start-Process $py -ArgumentList $uvArgs `
     -WorkingDirectory $root -PassThru -NoNewWindow
 Write-Host "  Uvicorn  : PID $($uvProc.Id)" -ForegroundColor DarkGray
 
-Start-Sleep 2   # let Uvicorn bind before nginx tries to connect
+# Poll until Uvicorn is actually listening on its port (up to 15 s).
+# A flat sleep is fragile on slow machines or cold Python starts.
+$deadline = (Get-Date).AddSeconds(15)
+$bound    = $false
+while ((Get-Date) -lt $deadline) {
+    $conn = Test-NetConnection -ComputerName 127.0.0.1 -Port $uvPort `
+                -InformationLevel Quiet -EA SilentlyContinue
+    if ($conn) { $bound = $true; break }
+    Start-Sleep -Milliseconds 400
+}
+if (-not $bound) {
+    Write-Host "  WARN: Uvicorn did not bind on port $uvPort within 15 s." -ForegroundColor Yellow
+}
 
 # ── Start nginx (if available) ────────────────────────────────────────────────
 $ngProc = $null
