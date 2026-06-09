@@ -14,8 +14,14 @@ Results are printed to stdout; a summary table is printed at the end.
 Exit code 0 if all tests pass, 1 if any fail.
 """
 from __future__ import annotations
-import argparse, json, sys, textwrap, time
+import argparse, json, re, sys, time
+from pathlib import Path
 import urllib.request, urllib.error
+
+# Force UTF-8 output so Unicode box-drawing / check characters print correctly
+# on Windows consoles that default to cp1252.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 BASE = "http://localhost:5000"
 
@@ -112,6 +118,17 @@ def _new_session(base: str) -> str:
     raise RuntimeError("Server did not return a session_id cookie.")
 
 
+def _get_source(base: str, cookie: str) -> str:
+    """Fetch the current session's LaTeX source via GET /api/source."""
+    req = urllib.request.Request(
+        base + "/api/source",
+        headers={"Cookie": cookie},
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read()).get("content", "")
+
+
 def _check(text: str, keywords: list[str]) -> bool:
     """Return True if at least one keyword appears in the text (case-insensitive)."""
     lower = text.lower()
@@ -123,11 +140,33 @@ def _truncate(s: str, n: int = 120) -> str:
     return s[:n] + "…" if len(s) > n else s
 
 
+def _save_pdf(base: str, cookie: str, dest: Path) -> bool:
+    """Download the session's current PDF and write it to dest. Returns True on success."""
+    try:
+        req = urllib.request.Request(
+            base + "/api/pdf",
+            headers={"Cookie": cookie},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if resp.status != 200:
+                return False
+            dest.write_bytes(resp.read())
+        return True
+    except Exception:
+        return False
+
+
+def _safe_filename(label: str) -> str:
+    """Turn a test label into a safe filename (no special chars, spaces → underscores)."""
+    return re.sub(r"[^\w\-]", "_", label).strip("_") + ".pdf"
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
-def run(base: str) -> int:
+def run(base: str, binder: Path | None = None) -> int:
     print(f"\n{'═'*70}")
     print(f"  Math Solver Test  —  {base}")
     print(f"{'═'*70}\n")
@@ -145,11 +184,15 @@ def run(base: str) -> int:
         print(f"\n  ERROR: Cannot reach server — {exc}\n")
         return 1
 
+    if binder:
+        binder.mkdir(parents=True, exist_ok=True)
+        print(f"  Binder       : {binder.resolve()}")
     print(f"  Problems     : {len(PROBLEMS)}\n")
 
     results: list[tuple[str, bool, float, str]] = []   # (label, pass, elapsed_s, snippet)
+    saved_pdfs: list[str] = []
 
-    for label, prompt, keywords in PROBLEMS:
+    for i, (label, prompt, keywords) in enumerate(PROBLEMS, 1):
         # Fresh session per problem → no cross-contamination
         try:
             cookie = _new_session(base)
@@ -159,23 +202,44 @@ def run(base: str) -> int:
 
         t0 = time.monotonic()
         try:
-            resp, _ = _post(
+            resp, cookie = _post(
                 base + "/api/chat",
                 {"messages": [{"role": "user", "content": prompt}], "mode": "math"},
                 cookie,
             )
             elapsed = time.monotonic() - t0
-            message = resp.get("message", "")
             error   = resp.get("error") or ""
-            passed  = _check(message + error, keywords) and not error
-            snippet = _truncate(message or error)
+            if error:
+                passed  = False
+                snippet = _truncate(error)
+            elif resp.get("updated"):
+                # The answer lives in the compiled LaTeX source, not the message.
+                source  = _get_source(base, cookie)
+                passed  = _check(source, keywords)
+                snippet = ("answer found in source" if passed
+                           else f"keywords {keywords} not found in source")
+            else:
+                passed  = False
+                snippet = _truncate(resp.get("message", "no response"))
         except Exception as exc:
             elapsed = time.monotonic() - t0
             passed  = False
             snippet = str(exc)
 
+        # Save PDF to binder regardless of answer correctness — if the server
+        # compiled a PDF (updated=True), capture it.  Name: NN_Label.pdf
+        pdf_note = ""
+        if binder and resp.get("updated"):
+            fname = f"{i:02d}_{_safe_filename(label)}"
+            dest  = binder / fname
+            if _save_pdf(base, cookie, dest):
+                saved_pdfs.append(fname)
+                pdf_note = f"  → {fname}"
+            else:
+                pdf_note = "  → PDF save failed"
+
         icon = "✓" if passed else "✗"
-        print(f"  {icon}  [{elapsed:5.1f}s]  {label:<28}  {snippet}")
+        print(f"  {icon}  [{elapsed:5.1f}s]  {label:<28}  {snippet}{pdf_note}")
         results.append((label, passed, elapsed, snippet))
 
         # Stay well under the rate limit (10 AI req/min → 6 s gap minimum).
@@ -198,6 +262,11 @@ def run(base: str) -> int:
             if not passed:
                 print(f"    ✗  {label}: {snippet}")
 
+    if binder and saved_pdfs:
+        print(f"\n  PDFs saved ({len(saved_pdfs)}/{total}) → {binder.resolve()}")
+        for name in saved_pdfs:
+            print(f"    {name}")
+
     print(f"{'═'*70}\n")
     return 0 if passed_n == total else 1
 
@@ -206,7 +275,9 @@ def run(base: str) -> int:
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    _default_binder = str(Path(__file__).parent / "Math Test")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--url", default=BASE, help="Base URL of the server")
+    ap.add_argument("--url",    default=BASE,           help="Base URL of the server")
+    ap.add_argument("--binder", default=_default_binder, help="Folder to save PDFs into")
     args = ap.parse_args()
-    sys.exit(run(args.url))
+    sys.exit(run(args.url, binder=Path(args.binder)))

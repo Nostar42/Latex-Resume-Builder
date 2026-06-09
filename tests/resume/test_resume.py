@@ -20,6 +20,11 @@ from __future__ import annotations
 import argparse, json, sys, time
 import urllib.request, urllib.error
 
+# Force UTF-8 output so Unicode box-drawing / check characters print correctly
+# on Windows consoles that default to cp1252.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 BASE     = "http://localhost:5000"
 TEMPLATE = "classic"   # start from classic two-column — richest placeholder content
 
