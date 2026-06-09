@@ -62,8 +62,8 @@ def _find_pdflatex() -> str:
         # System-wide MiKTeX (default installer target)
         r"C:\Program Files\MiKTeX\miktex\bin\x64\pdflatex.exe",
         r"C:\Program Files (x86)\MiKTeX\miktex\bin\x64\pdflatex.exe",
-        # Per-user MiKTeX (matches this machine's install)
-        r"C:\Users\hp\AppData\Local\Programs\MiKTeX\miktex\bin\x64\pdflatex.exe",
+        # Per-user MiKTeX (default per-user installer target for any user)
+        str(Path.home() / r"AppData\Local\Programs\MiKTeX\miktex\bin\x64\pdflatex.exe"),
     ]
     for c in _candidates:
         if Path(c).exists():
@@ -507,7 +507,9 @@ def _apply(content: str, edits: list) -> dict:
     for e in edits:
         s = e["search"].replace("\r", "")
         r = e["replace"].replace("\r", "")
-        if not s:
+        # Reject empty OR whitespace-only SEARCH text. A blank "   " is truthy
+        # but would match the first run of spaces in the document and corrupt it.
+        if not s.strip():
             return {"ok": False, "content": content, "error": "Empty SEARCH block."}
 
         # ── Primary: exact match ──────────────────────────────────────────
@@ -521,14 +523,19 @@ def _apply(content: str, edits: list) -> dict:
         # intent is unambiguous.  Normalise both sides (rstrip each line),
         # check for a line-boundary match, then splice at the line level so
         # the rest of the document is untouched.
+        had_trailing_nl = c.endswith("\n")
         c_lines = c.splitlines()
         s_norm  = "\n".join(ln.rstrip() for ln in s.splitlines())
         c_norm  = "\n".join(ln.rstrip() for ln in c_lines)
-        if s_norm and s_norm in c_norm:
-            idx = c_norm.index(s_norm)
-            # Only accept if the match starts at a line boundary (safety guard
-            # against a mid-line false positive on very short search texts).
-            if idx == 0 or c_norm[idx - 1] == "\n":
+        idx     = c_norm.find(s_norm) if s_norm else -1
+        if idx != -1:
+            # Accept only when the match starts AND ends on a line boundary, so
+            # a short search can't splice out the middle or tail of a longer line
+            # (e.g. "\section{Intro}" must not match "\section{Introduction}").
+            end          = idx + len(s_norm)
+            starts_clean = idx == 0 or c_norm[idx - 1] == "\n"
+            ends_clean   = end == len(c_norm) or c_norm[end] == "\n"
+            if starts_clean and ends_clean:
                 line_start = c_norm[:idx].count("\n")
                 line_count = s_norm.count("\n") + 1
                 c = "\n".join(
@@ -536,8 +543,10 @@ def _apply(content: str, edits: list) -> dict:
                     + r.splitlines()
                     + c_lines[line_start + line_count:]
                 )
-                # Restore trailing newline if the original document had one.
-                if content.endswith("\n") and not c.endswith("\n"):
+                # Restore the trailing newline this working copy had before the
+                # splice (splitlines/join drops it). Anchor on `c`, not the
+                # original `content`, so earlier edits' changes are respected.
+                if had_trailing_nl and not c.endswith("\n"):
                     c += "\n"
                 continue
 
@@ -1255,6 +1264,10 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
                 a2 = _apply(document, p2["edits"])
                 if a2["ok"]:
                     applied, parsed = a2, p2
+                else:
+                    # Retry still couldn't locate the text; surface its message
+                    # (not the first attempt's) in the failure response below.
+                    parsed = p2
         except Exception:
             pass
 
