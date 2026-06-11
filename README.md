@@ -157,8 +157,16 @@ Latex-Resume-Builder/
 │   ├── timeline.tex
 │   ├── blank.tex
 │   └── math.tex
+├── tests/
+│   ├── math/
+│   │   ├── test_math.py        # Math solver test suite (34 problems)
+│   │   ├── build_binder.py     # Assembles per-problem PDFs into a single binder
+│   │   └── Math Test/          # ← git-ignored; PDF output + results.json written here
+│   └── resume/
+│       └── test_resume.py      # Resume editor test suite (18 sequential edits)
 ├── temp/                   # ← git-ignored; created at runtime
 │   ├── sessions/<uuid>/    # Per-browser working files (tex, pdf, log, aux)
+│   ├── metrics.json        # Persisted AI performance metrics (per model, up to 1000 entries each)
 │   └── model.txt           # Remembers your last-used model
 └── logs/                   # ← git-ignored; nginx default log directory
 ```
@@ -218,6 +226,122 @@ Get-NetTCPConnection -LocalPort 5000 -State Listen | ForEach-Object { Stop-Proce
 - Session IDs are validated as proper UUID4 before being used as filesystem paths (prevents path traversal).
 - Rate limiting is enforced at both the nginx and FastAPI layers (10 AI requests/min, 20 compile requests/min, 60 read requests/min per IP).
 - The server is designed for personal/LAN use. See the *Going further* section if you want to expose it publicly.
+
+---
+
+## Testing
+
+The `tests/` directory contains two end-to-end test suites that drive the live server over HTTP.  The server must be running (`start.bat`) and Ollama must be active before running either test.
+
+### Prerequisites
+
+```powershell
+pip install pypdf reportlab   # only needed for build_binder.py
+```
+
+---
+
+### Math Solver (`tests/math/test_math.py`)
+
+Sends 34 math problems to the `/api/chat` endpoint in `math` mode, from basic arithmetic through definite integrals.  Each problem runs in its own fresh session so failures cannot cascade.
+
+| Tier | Problems |
+|---|---|
+| Basic arithmetic | Addition, subtraction, multiplication, long division, order of operations |
+| Fractions & decimals | Fraction add/multiply, decimal multiply, percentages |
+| Algebra | Linear, 2-variable system, quadratic formula, factoring, inequality, absolute value |
+| Exponents & logs | Exponent rules, log₂, natural log, log equation |
+| Trigonometry | sin(30°), Pythagorean identity, trig equation |
+| Limits | Basic limit, limit at infinity |
+| Derivatives | Power rule, product rule, chain rule, eˣ + ln(x) |
+| Integrals | Indefinite polynomial, indefinite trig, u-substitution, definite polynomial, definite trig |
+
+**Run:**
+```powershell
+py tests/math/test_math.py
+```
+
+Each problem's compiled PDF is saved to `tests/math/Math Test/` and a `results.json` summary is written alongside them.
+
+**Options:**
+```powershell
+py tests/math/test_math.py --url http://localhost:5000
+py tests/math/test_math.py --binder "tests/math/My Run"
+```
+
+---
+
+### Math Binder (`tests/math/build_binder.py`)
+
+Assembles a single PDF from a completed math test run: a stats cover page followed by every per-problem PDF in order.
+
+**Run after `test_math.py`:**
+```powershell
+py tests/math/build_binder.py
+```
+
+Output: `tests/math/Math Test Binder.pdf`
+
+The cover page includes:
+- Model name and run timestamp
+- Summary tiles: total problems, passed, failed, pass rate, average time
+- Per-problem results table with prompt, elapsed time, and pass/fail
+
+**Options:**
+```powershell
+py tests/math/build_binder.py --binder "tests/math/Math Test" --out "MyBinder.pdf"
+```
+
+---
+
+### Resume Editor (`tests/resume/test_resume.py`)
+
+Sends 18 sequential natural-language edit requests to the `/api/chat` endpoint in `resume` mode, starting from the classic template.  Edits accumulate in the same session (mimicking a real user).  After each successful compile the LaTeX source is checked to confirm the change was actually applied.
+
+| Category | Edits |
+|---|---|
+| Header fields | Name, title, email, phone |
+| Skills | Add a skill, remove a skill, bold formatting |
+| Experience | Add bullet, edit bullet |
+| Education | Add entry, change graduation year |
+| Sections | Add Certifications section, add second cert entry |
+| Style | Accent colour change |
+| Links | LinkedIn URL, GitHub link |
+| Multi-edit | Three simultaneous changes in one message |
+
+**Run:**
+```powershell
+py tests/resume/test_resume.py
+```
+
+**Options:**
+```powershell
+py tests/resume/test_resume.py --url http://localhost:5000
+py tests/resume/test_resume.py --template modern
+```
+
+---
+
+### Metrics
+
+Every AI request — from tests or normal use — is recorded in `temp/metrics.json`, keyed by model name with up to **1000 entries per model**.  Each entry stores:
+
+| Field | Description |
+|---|---|
+| `ts` | Unix timestamp |
+| `model` | Ollama model name |
+| `mode` | `resume`, `math`, or `image` |
+| `elapsed_ms` | Total wall-clock time (AI generation + compile) |
+| `prompt_tokens` | Tokens sent to the model |
+| `gen_tokens` | Tokens generated by the model |
+| `tokens_per_sec` | Generation speed |
+| `edit_ok` | Whether the SEARCH/REPLACE edit applied (resume mode) |
+| `compile_ok` | Whether pdflatex compiled without error (`null` = not attempted) |
+
+View live metrics in the app via the **📊 Metrics** button, or query directly:
+```powershell
+Invoke-WebRequest http://localhost:5000/api/metrics | ConvertFrom-Json | ConvertTo-Json -Depth 5
+```
 
 ---
 
