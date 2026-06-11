@@ -254,6 +254,67 @@
     .sbody a { color: var(--accent2); text-decoration: none; }
     .sbody a:hover { text-decoration: underline; }
 
+    /* ── Test Results panel (right-side drawer) ── */
+    #tr-drawer {
+      position: fixed; top: 0; right: 0; height: 100%; width: min(620px, 96vw);
+      background: var(--panel); border-left: 1px solid var(--line); z-index: 21;
+      transform: translateX(100%); transition: transform .22s ease;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #tr-drawer.show { transform: translateX(0); }
+    .tr-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+    .tr-head h2 { font-size: 13px; font-weight: 600; flex: 1; }
+    .tr-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px; }
+    .tr-body::-webkit-scrollbar { width: 5px; }
+    .tr-body::-webkit-scrollbar-thumb { background: #2c2c33; border-radius: 3px; }
+
+    /* suite block */
+    .tr-suite { display: flex; flex-direction: column; gap: 10px; }
+    .tr-suite-head {
+      display: flex; align-items: center; gap: 10px;
+      padding-bottom: 8px; border-bottom: 1px solid var(--line);
+    }
+    .tr-suite-title { font-size: 13px; font-weight: 600; flex: 1; }
+    .tr-suite-empty { font-size: 12px; color: var(--muted); padding: 8px 0; }
+
+    /* run block */
+    .tr-run { background: #1f1f24; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+    .tr-run-head {
+      display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+      cursor: pointer; user-select: none;
+    }
+    .tr-run-head:hover { background: #26262c; }
+    .tr-run-meta { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .tr-run-model { font-size: 12px; font-weight: 600; color: var(--text); font-family: 'Consolas','Fira Mono',monospace; }
+    .tr-run-info { font-size: 11px; color: var(--muted); }
+    .tr-score { font-size: 13px; font-weight: 700; white-space: nowrap; }
+    .tr-score.good { color: var(--good); }
+    .tr-score.warn { color: #fbbf24; }
+    .tr-score.bad  { color: var(--bad); }
+    .tr-chevron { font-size: 10px; color: var(--muted); transition: transform .15s; }
+    .tr-run.open .tr-chevron { transform: rotate(180deg); }
+
+    /* problem list */
+    .tr-problems { display: none; border-top: 1px solid var(--line); }
+    .tr-run.open .tr-problems { display: block; }
+    .tr-problem {
+      display: flex; align-items: center; gap: 8px; padding: 6px 14px;
+      border-bottom: 1px solid #1c1c20; font-size: 11.5px;
+    }
+    .tr-problem:last-child { border-bottom: none; }
+    .tr-problem:hover { background: #26262c; }
+    .tr-p-num { color: var(--muted); font-size: 10.5px; width: 20px; text-align: right; flex-shrink: 0; }
+    .tr-p-icon { font-size: 11px; flex-shrink: 0; width: 14px; }
+    .tr-p-label { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tr-p-time { color: var(--muted); font-size: 10.5px; flex-shrink: 0; }
+    .tr-p-btn {
+      padding: 2px 7px; font-size: 10.5px; border-radius: 4px;
+      border: 1px solid var(--line); background: #17171a; color: var(--muted);
+      cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    }
+    .tr-p-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+    #tr-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 40px 0; }
+
     /* ── Metrics panel (right-side drawer) ── */
     #metrics-drawer {
       position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 96vw);
@@ -368,6 +429,7 @@
   <select id="model-select" class="model-select" onchange="changeModel(this.value)" title="Local AI model"></select>
   <button class="btn accent" id="btn-templates" onclick="openTemplates()">Templates</button>
   <button class="btn" onclick="openSource()">LaTeX Source</button>
+  <button class="btn" onclick="openTestResults()">📋 Test Results</button>
   <button class="btn" id="metrics-btn" onclick="openMetrics()">📊 Metrics</button>
   <button class="btn" onclick="openSetup()">Setup Guide</button>
   <button class="btn danger" onclick="resetMaster()">Reset</button>
@@ -556,6 +618,20 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
   </div>
   <div class="mbody" id="metrics-body">
     <div id="metrics-empty">Send a chat message to start tracking.</div>
+  </div>
+</div>
+
+<!-- Test Results panel -->
+<div class="drawer-back" id="tr-back" onclick="closeTestResults()"></div>
+<div id="tr-drawer">
+  <div class="tr-head">
+    <h2>📋 Test Results</h2>
+    <div class="spacer"></div>
+    <button class="btn" onclick="loadTestResults()">Refresh</button>
+    <button class="btn" onclick="closeTestResults()">Close</button>
+  </div>
+  <div class="tr-body" id="tr-body">
+    <div id="tr-empty">Loading…</div>
   </div>
 </div>
 
@@ -1007,6 +1083,112 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
     } catch (err) {
       body.innerHTML = '<div id="metrics-empty" style="color:var(--bad)">⚠ Could not load metrics: ' + err.message + '</div>';
     }
+  }
+
+  // ── Test Results panel ──────────────────────────────────────────────────
+  function openTestResults() {
+    document.getElementById('tr-back').classList.add('show');
+    document.getElementById('tr-drawer').classList.add('show');
+    loadTestResults();
+  }
+  function closeTestResults() {
+    document.getElementById('tr-back').classList.remove('show');
+    document.getElementById('tr-drawer').classList.remove('show');
+  }
+
+  function _scoreClass(passed, total) {
+    if (!total) return '';
+    const pct = passed / total;
+    return pct >= 0.9 ? 'good' : pct >= 0.6 ? 'warn' : 'bad';
+  }
+
+  function _fmtTs(ts) {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    return d.toLocaleDateString() + '  ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  }
+
+  async function loadTestResults() {
+    const body = document.getElementById('tr-body');
+    body.innerHTML = '<div id="tr-empty">Loading…</div>';
+    try {
+      const data   = await fetch('/api/test-results').then(r => r.json());
+      const suites = data.suites || [];
+      if (!suites.length) {
+        body.innerHTML = '<div id="tr-empty">No test suites found.</div>';
+        return;
+      }
+
+      let html = '';
+      suites.forEach(suite => {
+        html += `<div class="tr-suite">
+          <div class="tr-suite-head">
+            <span class="tr-suite-title">${escapeHtml(suite.name)}</span>`;
+
+        if (suite.binder) {
+          html += `<a class="btn" href="/api/test-pdf?path=${encodeURIComponent(suite.binder)}"
+                      target="_blank" title="Open full binder PDF">Open Binder ↗</a>
+                   <a class="btn" href="/api/test-pdf?path=${encodeURIComponent(suite.binder)}"
+                      download title="Download binder PDF">↓</a>`;
+        }
+        html += `</div>`;
+
+        if (!suite.runs || !suite.runs.length) {
+          html += `<div class="tr-suite-empty">No results yet — run <code>py tests/${escapeHtml(suite.subdir)}/test_${escapeHtml(suite.id)}.py</code> to generate them.</div>`;
+        } else {
+          suite.runs.forEach((run, ri) => {
+            const r       = run.results || {};
+            const passed  = r.passed  ?? 0;
+            const total   = r.total   ?? 0;
+            const avgS    = r.avg_elapsed_s ?? 0;
+            const model   = r.model   || 'unknown';
+            const ts      = _fmtTs(r.run_ts);
+            const pct     = total ? Math.round(passed/total*100) : 0;
+            const cls     = _scoreClass(passed, total);
+            const runId   = `run-${suite.id}-${ri}`;
+
+            html += `<div class="tr-run" id="${runId}">
+              <div class="tr-run-head" onclick="toggleRun('${runId}')">
+                <div class="tr-run-meta">
+                  <span class="tr-run-model">${escapeHtml(model)}</span>
+                  <span class="tr-run-info">${escapeHtml(ts)}  ·  avg ${avgS}s / problem</span>
+                </div>
+                <span class="tr-score ${cls}">${passed}/${total} (${pct}%)</span>
+                <span class="tr-chevron">▼</span>
+              </div>
+              <div class="tr-problems">`;
+
+            (r.problems || []).forEach(p => {
+              const icon    = p.passed ? '✓' : '✗';
+              const iconCls = p.passed ? 'style="color:var(--good)"' : 'style="color:var(--bad)"';
+              const pdfPath = run.folder + '/' + (p.pdf || '');
+              const hasPdf  = run.pdfs && run.pdfs.includes(p.pdf);
+              const viewBtn = hasPdf
+                ? `<a class="tr-p-btn" href="/api/test-pdf?path=${encodeURIComponent(pdfPath)}" target="_blank">View ↗</a>`
+                : `<span class="tr-p-btn" style="opacity:.35;cursor:default">—</span>`;
+              html += `<div class="tr-problem">
+                <span class="tr-p-num">${p.num}</span>
+                <span class="tr-p-icon" ${iconCls}>${icon}</span>
+                <span class="tr-p-label" title="${escapeHtml(p.prompt)}">${escapeHtml(p.label)}</span>
+                <span class="tr-p-time">${p.elapsed_s}s</span>
+                ${viewBtn}
+              </div>`;
+            });
+
+            html += `</div></div>`;
+          });
+        }
+        html += `</div>`;
+      });
+
+      body.innerHTML = html;
+    } catch (err) {
+      body.innerHTML = `<div id="tr-empty" style="color:var(--bad)">⚠ Could not load test results: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function toggleRun(id) {
+    document.getElementById(id).classList.toggle('open');
   }
 
   // ── Mode switcher ──

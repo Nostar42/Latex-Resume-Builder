@@ -38,6 +38,7 @@ INDEX_PATH    = BASE_DIR / "index.html"
 SESSIONS_DIR  = TEMP_DIR / "sessions"
 MODEL_FILE    = TEMP_DIR / "model.txt"
 METRICS_FILE  = TEMP_DIR / "metrics.json"
+TESTS_DIR     = BASE_DIR / "tests"
 
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -987,6 +988,85 @@ async def post_model(request: Request):
         return JSONResponse({"ok": True, "error": None})
     except Exception:
         return JSONResponse({"ok": False, "error": "Ollama isn't running."})
+
+
+# ---------------------------------------------------------------------------
+# Test-results API
+# Scans the tests/ directory for completed test runs (folders that contain
+# a results.json) and serves their PDFs for the in-app Test Results panel.
+# ---------------------------------------------------------------------------
+
+# Known suites in display order.  Only suites whose directory exists are returned.
+_TEST_SUITES = [
+    {"id": "math",   "name": "Math Solver",   "subdir": "math"},
+    {"id": "resume", "name": "Resume Editor", "subdir": "resume"},
+]
+
+
+@app.get("/api/test-results")
+async def get_test_results(request: Request):
+    """Return available test-suite runs and their per-problem metadata."""
+    if not await _rate_limit(request, _RL_API): return _too_many()
+
+    suites = []
+    for spec in _TEST_SUITES:
+        suite_dir = TESTS_DIR / spec["subdir"]
+        if not suite_dir.is_dir():
+            suites.append({**spec, "runs": [], "binder": None})
+            continue
+
+        # Collect every sub-folder that contains a results.json.
+        runs = []
+        for folder in sorted(suite_dir.iterdir()):
+            results_file = folder / "results.json"
+            if not folder.is_dir() or not results_file.exists():
+                continue
+            try:
+                results = json.loads(results_file.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            # Build the list of available PDFs so the UI knows which ones exist.
+            pdfs = sorted(
+                [f.name for f in folder.glob("*.pdf") if f.name[0].isdigit()],
+                key=lambda n: int(n.split("_")[0]) if n[0].isdigit() else 999,
+            )
+            runs.append({
+                "folder":  f"{spec['subdir']}/{folder.name}",
+                "results": results,
+                "pdfs":    pdfs,
+            })
+
+        # Check for a pre-built binder PDF at the suite root.
+        binder = next(
+            (f"{spec['subdir']}/{p.name}" for p in suite_dir.glob("*.pdf") if "Binder" in p.name),
+            None,
+        )
+        suites.append({**spec, "runs": runs, "binder": binder})
+
+    return JSONResponse({"suites": suites})
+
+
+@app.get("/api/test-pdf")
+async def get_test_pdf(request: Request, path: str = ""):
+    """Serve a PDF from the tests/ directory.
+
+    The `path` parameter is relative to tests/ (e.g. "math/Math Test/01_Addition.pdf").
+    Requests that would escape outside tests/ are rejected with 400.
+    """
+    if not await _rate_limit(request, _RL_API): return _too_many()
+    if not path:
+        return Response(status_code=400, content="Missing path parameter.")
+    # Resolve and validate: must stay inside TESTS_DIR.
+    try:
+        target = (TESTS_DIR / path).resolve()
+        TESTS_DIR.resolve()   # ensure TESTS_DIR itself resolves cleanly
+        target.relative_to(TESTS_DIR.resolve())   # raises ValueError if outside
+    except (ValueError, Exception):
+        return Response(status_code=400, content="Invalid path.")
+    if not target.exists() or not target.is_file() or target.suffix.lower() != ".pdf":
+        return Response(status_code=404, content="PDF not found.")
+    return FileResponse(str(target), media_type="application/pdf",
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/metrics")
