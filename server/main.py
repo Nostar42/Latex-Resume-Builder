@@ -795,36 +795,84 @@ document.tex:
 pdflatex error:
 {error}"""
 
-# Prompt used when mode=="math": generate a complete step-by-step solution document.
-# The model outputs the whole LaTeX file (no SEARCH/REPLACE).
+# Prompt used when mode=="math".
+# Server-side wrapping approach: the model outputs only the math content using
+# two structured tags; the server injects that content into a fixed LaTeX
+# template.  This means even small models only need to know LaTeX math
+# notation — they never have to produce a valid \documentclass header.
 _MATH_SYS = """\
-You are a mathematics tutor and LaTeX expert.
+You are a mathematics tutor. Solve the problem step by step.
 
-The user will give you a math problem to solve, or ask you to extend/refine an existing solution.
-Output a COMPLETE, compilable LaTeX document containing the full step-by-step working.
+Output exactly these two tags and nothing else:
 
-Document structure:
-1. Problem statement in bold at the top
-2. Step-by-step solution — number every step, explain each one in plain English
-3. Use align or align* for multi-line equation chains
-4. Final answer clearly boxed with \\boxed{{}}
+<problem>
+Restate the problem statement clearly.
+</problem>
 
-LaTeX requirements — use exactly these packages:
-\\documentclass[12pt,a4paper]{{article}}
-\\usepackage[margin=2.5cm]{{geometry}}
-\\usepackage[T1]{{fontenc}}
-\\usepackage[utf8]{{inputenc}}
-\\usepackage{{amsmath,amssymb,amsthm}}
-\\usepackage{{parskip}}
+<solution>
+Step 1: brief English explanation
+\\[ equation \\]
+
+Step 2: brief English explanation
+...
+
+\\[ \\boxed{{final answer}} \\]
+</solution>
 
 Rules:
-- Output ONLY raw LaTeX, starting with \\documentclass and ending with \\end{{document}}.
-- Do NOT wrap in markdown code fences.
-- Do NOT add any text before \\documentclass.
-- If the user refines or extends, output the FULL updated document.
+- Use LaTeX math notation inside the tags: $...$ for inline math, \\[...\\] for display equations, align* for multi-line chains.
+- Number every step and give a one-line English explanation for each.
+- Box the final answer with \\boxed{{}}.
+- Do NOT output \\documentclass, \\usepackage, \\begin{{document}}, or any preamble — the document wrapper is added automatically.
+- Do NOT wrap output in markdown code fences.{context}"""
 
-Current document (context for refinements — empty on first problem):
-{document}"""
+# Fixed LaTeX wrapper — model content is injected into PROBLEM and SOLUTION slots.
+# Using a sentinel-replacement approach so LaTeX braces in the content are safe.
+_MATH_TEMPLATE = r"""\documentclass[12pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{parskip}
+
+\begin{document}
+
+\begin{center}
+  {\large\bfseries Math Solution}
+\end{center}
+
+\noindent\textbf{Problem:}\quad MATH_PROBLEM_SLOT
+
+\medskip\hrule\medskip
+
+MATH_SOLUTION_SLOT
+
+\end{document}
+"""
+
+
+def _parse_math_tags(text: str) -> dict[str, str]:
+    """Extract <problem> and <solution> content from model output.
+
+    Falls back gracefully: if the model omits the tags entirely, the whole
+    response is treated as the solution so at least something is compiled.
+    """
+    text = _strip_fences(text)
+    prob_m = re.search(r"<problem>(.*?)</problem>", text, re.DOTALL | re.IGNORECASE)
+    sol_m  = re.search(r"<solution>(.*?)</solution>", text, re.DOTALL | re.IGNORECASE)
+    problem  = prob_m.group(1).strip() if prob_m  else ""
+    solution = sol_m.group(1).strip()  if sol_m   else ""
+    # Fallback: no tags at all — treat whole response as solution
+    if not problem and not solution:
+        solution = text.strip()
+    return {"problem": problem, "solution": solution}
+
+
+def _build_math_doc(problem: str, solution: str) -> str:
+    """Inject parsed content into the fixed LaTeX wrapper."""
+    return (_MATH_TEMPLATE
+            .replace("MATH_PROBLEM_SLOT",  problem  or "See solution below.")
+            .replace("MATH_SOLUTION_SLOT", solution or "(no solution provided)"))
 
 # ---------------------------------------------------------------------------
 # Security helpers
@@ -1134,18 +1182,26 @@ async def get_test_results(request: Request):
                 [f.name for f in folder.glob("*.pdf") if f.name[0].isdigit()],
                 key=lambda n: int(n.split("_")[0]) if n[0].isdigit() else 999,
             )
+            # Look for a binder PDF alongside the folder at the suite root.
+            # Convention from build_binder.py / run_model_comparison.py:
+            #   "Math Test/"          → "Math Test Binder.pdf"
+            #   "Math Test - phi4/"   → "Math Test - phi4.pdf"
+            binder_candidates = [
+                suite_dir / f"{folder.name}.pdf",
+                suite_dir / f"{folder.name} Binder.pdf",
+            ]
+            run_binder = next(
+                (f"{spec['subdir']}/{p.name}" for p in binder_candidates if p.exists()),
+                None,
+            )
             runs.append({
                 "folder":  f"{spec['subdir']}/{folder.name}",
                 "results": results,
                 "pdfs":    pdfs,
+                "binder":  run_binder,
             })
 
-        # Check for a pre-built binder PDF at the suite root.
-        binder = next(
-            (f"{spec['subdir']}/{p.name}" for p in suite_dir.glob("*.pdf") if "Binder" in p.name),
-            None,
-        )
-        suites.append({**spec, "runs": runs, "binder": binder})
+        suites.append({**spec, "runs": runs})
 
     return JSONResponse({"suites": suites})
 
@@ -1407,27 +1463,20 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
         )
 
     # ══════════════════════════════════════════════════════════════════════
-    # MATH SOLVER MODE
-    # Generates a complete step-by-step LaTeX solution document from scratch
-    # (or refines the existing one on follow-up messages).
+    # MATH SOLVER MODE  (server-side LaTeX wrapping)
+    # The model outputs only <problem> and <solution> tags containing math
+    # content in LaTeX notation.  The server injects that into a fixed
+    # document template so even small models never need to produce a full
+    # \documentclass header.
     # ══════════════════════════════════════════════════════════════════════
     if mode == "math":
-        # Bootstrap: when there's no document yet, seed the context with the
-        # math template so the model has a complete compilable skeleton to
-        # reference.  This prevents "Missing \begin{document}" errors that
-        # occur when the model anchors on an empty context and omits the
-        # LaTeX preamble.
-        math_doc = document.strip()
-        if not math_doc:
-            tmpl_path = TEMPLATES_DIR / "math.tex"
-            if tmpl_path.exists():
-                math_doc = tmpl_path.read_text(encoding="utf-8")
+        # For refinements, pass the previous solution content as context so
+        # the model can extend or correct it without re-stating the whole doc.
+        prev_doc = document.strip()
+        context_str = (f"\n\nPrevious solution for context (refine or replace as needed):\n{prev_doc}"
+                       if prev_doc else "")
+        math_system = _MATH_SYS.format(context=context_str)
 
-        # Escape { and } in the document so Python's str.format() doesn't
-        # mistake LaTeX braces (e.g. \frac{a}{b}) for format placeholders.
-        math_system = _MATH_SYS.format(
-            document=math_doc.replace("{", "{{").replace("}", "}}")
-        )
         try:
             raw, llm_perf = await _llm(math_system, messages)
         except Exception:
@@ -1438,20 +1487,18 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
                 sid, is_new, status=500,
             )
 
-        latex = _extract_latex(_strip_fences(raw))
-
-        # Require BOTH markers — a document missing either will fail to compile.
-        # Previously used `and` so a response with \documentclass but no
-        # \begin{document} would silently pass and produce a pdflatex error.
-        if "\\documentclass" not in latex or "\\begin{document}" not in latex:
+        # Parse structured tags; fall back to treating whole response as solution.
+        parsed = _parse_math_tags(raw)
+        if not parsed["problem"] and not parsed["solution"]:
             return _finish(
-                {"message": ("The model returned an incomplete LaTeX document. "
-                             "Try rephrasing the problem or switching to a "
-                             "different model.\n\n" + latex[:400]),
+                {"message": ("The model returned an empty response. "
+                             "Try rephrasing the problem or switching models."),
                  "updated": False, "error": None},
                 edit_ok=False, compile_ok=None,
             )
 
+        # Server builds the full LaTeX document from the fixed template.
+        latex = _build_math_doc(parsed["problem"], parsed["solution"])
         tex.write_text(latex, encoding="utf-8")
         c = await _compile(sid)
 
@@ -1462,7 +1509,7 @@ async def chat(request: Request, session_id: Optional[str] = Cookie(None)):
                 edit_ok=True, compile_ok=True,
             )
 
-        # One auto-fix attempt on compile failure
+        # One auto-fix attempt: ask the model to repair the server-built doc.
         broken     = tex.read_text(encoding="utf-8")
         fix_system = _FIX_SYS.format(
             document=broken.replace("{", "{{").replace("}", "}}"),

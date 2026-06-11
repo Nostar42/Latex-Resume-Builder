@@ -1123,15 +1123,8 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
       suites.forEach(suite => {
         html += `<div class="tr-suite">
           <div class="tr-suite-head">
-            <span class="tr-suite-title">${escapeHtml(suite.name)}</span>`;
-
-        if (suite.binder) {
-          html += `<a class="btn" href="/api/test-pdf?path=${encodeURIComponent(suite.binder)}"
-                      target="_blank" title="Open full binder PDF">Open Binder ↗</a>
-                   <a class="btn" href="/api/test-pdf?path=${encodeURIComponent(suite.binder)}"
-                      download title="Download binder PDF">↓</a>`;
-        }
-        html += `</div>`;
+            <span class="tr-suite-title">${escapeHtml(suite.name)}</span>
+          </div>`;
 
         if (!suite.runs || !suite.runs.length) {
           html += `<div class="tr-suite-empty">No results yet — run <code>py tests/${escapeHtml(suite.subdir)}/test_${escapeHtml(suite.id)}.py</code> to generate them.</div>`;
@@ -1147,10 +1140,21 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
             const cls     = _scoreClass(passed, total);
             const runId   = `run-${suite.id}-${ri}`;
 
+            // Per-run binder buttons — shown inline with the model name
+            const binderBtns = run.binder
+              ? `<a class="tr-p-btn" href="/api/test-pdf?path=${encodeURIComponent(run.binder)}"
+                    target="_blank" title="Open binder PDF" style="padding:3px 8px;font-size:11px">Binder ↗</a>
+                 <a class="tr-p-btn" href="/api/test-pdf?path=${encodeURIComponent(run.binder)}"
+                    download title="Download binder PDF" style="padding:3px 8px;font-size:11px">↓</a>`
+              : '';
+
             html += `<div class="tr-run" id="${runId}">
               <div class="tr-run-head" onclick="toggleRun('${runId}')">
                 <div class="tr-run-meta">
-                  <span class="tr-run-model">${escapeHtml(model)}</span>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span class="tr-run-model">${escapeHtml(model)}</span>
+                    ${binderBtns}
+                  </div>
                   <span class="tr-run-info">${escapeHtml(ts)}  ·  avg ${avgS}s / problem</span>
                 </div>
                 <span class="tr-score ${cls}">${passed}/${total} (${pct}%)</span>
