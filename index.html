@@ -1284,93 +1284,63 @@ $env:LLM_BASE_URL     = "http://localhost:8001"</code></pre>
   }
 
   // ── Model picker ──
-  // Full catalog — loadModels() filters by currentMode families.
-  // family = optgroup label. star = recommended.
-  const MODEL_CATALOG = [
-    // Qwen2.5-Coder family
-    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:0.5b', label: 'Qwen2.5-Coder 0.5B', star: false },
-    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:1.5b', label: 'Qwen2.5-Coder 1.5B', star: false },
-    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:3b',   label: 'Qwen2.5-Coder 3B',   star: false },
-    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:7b',   label: 'Qwen2.5-Coder 7B',   star: false },
-    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:14b',  label: 'Qwen2.5-Coder 14B',  star: true  },
-    { family: 'Qwen2.5-Coder',    name: 'qwen2.5-coder:32b',  label: 'Qwen2.5-Coder 32B',  star: true  },
-    // Microsoft Phi-4 family
-    { family: 'Microsoft Phi-4',  name: 'phi4-mini',           label: 'Phi-4 Mini 3.8B',    star: false },
-    { family: 'Microsoft Phi-4',  name: 'phi4',                label: 'Phi-4 14B',           star: true  },
-    // Mistral family
-    { family: 'Mistral',          name: 'mistral',             label: 'Mistral 7B',          star: false },
-    { family: 'Mistral',          name: 'mistral-small',       label: 'Mistral Small 22B',   star: true  },
-    // DeepSeek-R1 family
-    { family: 'DeepSeek-R1',      name: 'deepseek-r1:1.5b',   label: 'DeepSeek-R1 1.5B',   star: false },
-    { family: 'DeepSeek-R1',      name: 'deepseek-r1:7b',     label: 'DeepSeek-R1 7B',     star: false },
-    { family: 'DeepSeek-R1',      name: 'deepseek-r1:8b',     label: 'DeepSeek-R1 8B',     star: false },
-    { family: 'DeepSeek-R1',      name: 'deepseek-r1:14b',    label: 'DeepSeek-R1 14B',    star: true  },
-    { family: 'DeepSeek-R1',      name: 'deepseek-r1:32b',    label: 'DeepSeek-R1 32B',    star: true  },
-    { family: 'DeepSeek-R1',      name: 'deepseek-r1:70b',    label: 'DeepSeek-R1 70B',    star: true  },
-    // Meta Llama 3.3 family
-    { family: 'Meta Llama 3.3',   name: 'llama3.3',            label: 'Llama 3.3 70B',      star: true  },
-    // Meta CodeLlama family
-    { family: 'Meta CodeLlama',   name: 'codellama:7b',        label: 'CodeLlama 7B',        star: false },
-    { family: 'Meta CodeLlama',   name: 'codellama:13b',       label: 'CodeLlama 13B',       star: false },
-    { family: 'Meta CodeLlama',   name: 'codellama:34b',       label: 'CodeLlama 34B',       star: true  },
-    // Vision / OCR family — required for image-to-LaTeX
-    { family: 'Vision / OCR',     name: 'moondream',           label: 'Moondream 1.8B',      star: false },
-    { family: 'Vision / OCR',     name: 'llava-phi3',          label: 'LLaVA-Phi3 3.8B',    star: false },
-    { family: 'Vision / OCR',     name: 'llava',               label: 'LLaVA 7B',            star: true  },
-    { family: 'Vision / OCR',     name: 'llava:13b',           label: 'LLaVA 13B',           star: false },
-    { family: 'Vision / OCR',     name: 'minicpm-v',           label: 'MiniCPM-V 8B',        star: true  },
-  ];
+  // The catalog and installed-status both come from /api/models (server-side).
+  // No hardcoded model list in the frontend.
 
   async function loadModels() {
     const sel = document.getElementById('model-select');
     try {
-      const res = await fetch('/api/models');
+      const res  = await fetch('/api/models');
       const data = await res.json();
-      const installed = new Set(data.models || []);
-      // Ollama stores tag-less pulls as "model:latest" (e.g. phi4:latest, llama3.3:latest).
-      // Also add the bare name so catalog entries like "phi4" match "phi4:latest".
-      (data.models || []).forEach(m => {
-        if (m.endsWith(':latest')) installed.add(m.slice(0, -7));
-      });
-      const current = data.current || '';
+
+      if (!data.running) {
+        sel.innerHTML = '<option disabled selected>Ollama not running</option>';
+        sel.disabled  = true;
+        return;
+      }
+
+      const allModels = data.models || [];   // [{name, family, mode, installed}, ...]
+      const current   = data.current || '';
       sel.innerHTML = '';
-      sel.disabled = false;
+      sel.disabled  = false;
 
-      // Filter catalog to only the families relevant to the current mode
-      const allowedFamilies = new Set(MODES[currentMode].families);
-      const catalog = MODEL_CATALOG.filter(m => allowedFamilies.has(m.family));
+      // image mode → vision models only; resume/math → text models only
+      const models = allModels.filter(m =>
+        currentMode === 'image' ? m.mode === 'vision' : m.mode === 'text'
+      );
 
-      // Build optgroups by family
-      const families = [...new Set(catalog.map(m => m.family))];
-      families.forEach(family => {
+      // Group by family
+      const grouped = {};
+      models.forEach(m => (grouped[m.family] = grouped[m.family] || []).push(m));
+
+      Object.entries(grouped).forEach(([family, members]) => {
         const grp = document.createElement('optgroup');
         grp.label = family;
-        catalog.filter(m => m.family === family).forEach(m => {
-          const isInstalled = installed.has(m.name);
-          const o = document.createElement('option');
-          o.value = m.name;
-          o.textContent = (m.star ? '★ ' : '  ') + m.label + (isInstalled ? '' : '  — not installed');
-          o.disabled = !isInstalled;
-          if (m.name === current) o.selected = true;
+        members.forEach(m => {
+          const o       = document.createElement('option');
+          o.value       = m.name;
+          o.disabled    = !m.installed;
+          // Strip ':latest' for cleaner display; mark uninstalled
+          const label   = m.name.endsWith(':latest') ? m.name.slice(0, -7) : m.name;
+          o.textContent = m.installed ? label : label + '  — not installed';
+          // Match current: "phi4" matches "phi4:latest" and vice-versa
+          const norm = n => n.endsWith(':latest') ? n.slice(0, -7) : n;
+          if (norm(m.name) === norm(current)) o.selected = true;
           grp.appendChild(o);
         });
         sel.appendChild(grp);
       });
 
-      // If the active model isn't in the filtered catalog, add it as a selectable option
-      // (e.g. set via OLLAMA_MODEL env var, or switching modes while a foreign model is active)
-      if (current && !catalog.some(m => m.name === current)) {
+      // If the active model isn't in the mode-filtered list (e.g. vision model
+      // active while in resume mode), show it so the user knows what's selected.
+      const norm = n => n.endsWith(':latest') ? n.slice(0, -7) : n;
+      const listed = models.some(m => norm(m.name) === norm(current));
+      if (current && !listed) {
         const o = document.createElement('option');
         o.value = current;
-        o.textContent = current + ' (current — switch mode to see it)';
         o.selected = true;
+        o.textContent = norm(current) + ' ↩ switch mode';
         sel.appendChild(o);
-      }
-
-      // If Ollama is down entirely, show a single placeholder
-      if (!data.running) {
-        sel.innerHTML = '<option disabled selected>Ollama not running</option>';
-        sel.disabled = true;
       }
     } catch (e) {
       sel.innerHTML = '<option disabled selected>model unavailable</option>';

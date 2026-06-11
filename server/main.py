@@ -186,6 +186,53 @@ def _record_metric(entry: dict) -> None:
             _metrics[model] = bucket[-_METRICS_CAP:]
         _save_metrics_locked()
 
+# ---------------------------------------------------------------------------
+# Model catalog + installed-model cache
+#
+# _MODEL_CATALOG  — every model the app supports, grouped by family/mode.
+#                   Shown in the dropdown whether installed or not.
+# _model_cache    — {"installed": set[str], "running": bool}
+#                   Populated once at startup by querying Ollama; refreshed
+#                   on every /api/models call so newly-pulled models appear
+#                   without a server restart.
+# ---------------------------------------------------------------------------
+_MODEL_CATALOG = [
+    # ── Qwen2.5-Coder ────────────────────────────────────────────────────────
+    {"family": "Qwen2.5-Coder", "name": "qwen2.5-coder:0.5b",  "mode": "text"},
+    {"family": "Qwen2.5-Coder", "name": "qwen2.5-coder:1.5b",  "mode": "text"},
+    {"family": "Qwen2.5-Coder", "name": "qwen2.5-coder:3b",    "mode": "text"},
+    {"family": "Qwen2.5-Coder", "name": "qwen2.5-coder:7b",    "mode": "text"},
+    {"family": "Qwen2.5-Coder", "name": "qwen2.5-coder:14b",   "mode": "text"},
+    {"family": "Qwen2.5-Coder", "name": "qwen2.5-coder:32b",   "mode": "text"},
+    # ── Microsoft Phi-4 ──────────────────────────────────────────────────────
+    {"family": "Phi-4",         "name": "phi4-mini",            "mode": "text"},
+    {"family": "Phi-4",         "name": "phi4",                 "mode": "text"},
+    # ── Mistral ──────────────────────────────────────────────────────────────
+    {"family": "Mistral",       "name": "mistral",              "mode": "text"},
+    {"family": "Mistral",       "name": "mistral-small",        "mode": "text"},
+    # ── DeepSeek-R1 ──────────────────────────────────────────────────────────
+    {"family": "DeepSeek-R1",   "name": "deepseek-r1:1.5b",    "mode": "text"},
+    {"family": "DeepSeek-R1",   "name": "deepseek-r1:7b",      "mode": "text"},
+    {"family": "DeepSeek-R1",   "name": "deepseek-r1:8b",      "mode": "text"},
+    {"family": "DeepSeek-R1",   "name": "deepseek-r1:14b",     "mode": "text"},
+    {"family": "DeepSeek-R1",   "name": "deepseek-r1:32b",     "mode": "text"},
+    {"family": "DeepSeek-R1",   "name": "deepseek-r1:70b",     "mode": "text"},
+    # ── Meta Llama ───────────────────────────────────────────────────────────
+    {"family": "Meta Llama",    "name": "llama3.3",             "mode": "text"},
+    # ── Meta CodeLlama ───────────────────────────────────────────────────────
+    {"family": "CodeLlama",     "name": "codellama:7b",         "mode": "text"},
+    {"family": "CodeLlama",     "name": "codellama:13b",        "mode": "text"},
+    {"family": "CodeLlama",     "name": "codellama:34b",        "mode": "text"},
+    # ── Vision / OCR (image-to-LaTeX mode) ───────────────────────────────────
+    {"family": "Vision / OCR",  "name": "moondream",            "mode": "vision"},
+    {"family": "Vision / OCR",  "name": "llava-phi3",           "mode": "vision"},
+    {"family": "Vision / OCR",  "name": "llava",                "mode": "vision"},
+    {"family": "Vision / OCR",  "name": "llava:13b",            "mode": "vision"},
+    {"family": "Vision / OCR",  "name": "minicpm-v",            "mode": "vision"},
+]
+
+_model_cache: dict = {"installed": set(), "running": False}
+
 _RL_WINDOW  = 60.0   # sliding window width in seconds
 _RL_CHAT    = 10
 _RL_COMPILE = 20
@@ -288,7 +335,7 @@ _index_html: bytes = b""              # cached at startup (skipped when DEV=1)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── startup ──────────────────────────────────────────────────────────────
-    global _sem, _index_html, _rl_lock, _metrics
+    global _sem, _index_html, _rl_lock, _metrics, _model_cache
     _sem     = asyncio.Semaphore(MAX_COMPILES)
     _rl_lock = asyncio.Lock()   # must be created on the running event loop
     _metrics = _load_metrics()  # restore persisted metrics from temp/metrics.json
@@ -301,6 +348,27 @@ async def lifespan(app: FastAPI):
         _save_metrics_locked()
     if not DEV_MODE:
         _index_html = INDEX_PATH.read_bytes()   # cache once; re-read per-req in DEV mode
+    # Query Ollama once at startup to find which catalog models are installed.
+    # /api/models serves from this cache; the cache is also refreshed on every
+    # /api/models call so newly-pulled models appear without a restart.
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=4, read=6, write=4, pool=4)
+        ) as client:
+            r = await client.get(f"{OLLAMA_URL}/api/tags")
+            r.raise_for_status()
+            raw = [m["name"] for m in r.json().get("models", [])]
+            # Accept both "phi4" and "phi4:latest" as matching a catalog entry "phi4".
+            inst: set[str] = set(raw)
+            for name in raw:
+                if name.endswith(":latest"):
+                    inst.add(name[:-7])
+            _model_cache["installed"] = inst
+            _model_cache["running"]   = True
+        n_inst = sum(1 for m in _MODEL_CATALOG if m["name"] in _model_cache["installed"])
+        print(f"  Models    : {n_inst}/{len(_MODEL_CATALOG)} catalog models installed")
+    except Exception:
+        print(f"  Models    : Ollama not reachable at startup — will retry on first /api/models call")
     print(f"  pdflatex  : {PDFLATEX}")
     print(f"  LLM URL   : {LLM_BASE_URL}  ({'vLLM' if USE_VLLM else 'Ollama'})")
     print(f"  Model     : {_active_model()}")
@@ -943,16 +1011,52 @@ async def post_template(request: Request, session_id: Optional[str] = Cookie(Non
 
 @app.get("/api/models")
 async def get_models(request: Request):
+    """Return the full model catalog with installed flags.
+
+    Attempts a live Ollama refresh on each call so newly-pulled models
+    appear without a restart. Falls back to the startup-cached installed
+    set if Ollama is temporarily unreachable.
+
+    Response shape:
+      {
+        "models": [
+          {"name": "phi4", "family": "Phi-4", "mode": "text", "installed": true},
+          {"name": "qwen2.5-coder:32b", "family": "Qwen2.5-Coder", "mode": "text", "installed": false},
+          ...
+        ],
+        "current": "phi4",
+        "running": true
+      }
+    """
     if not await _rate_limit(request, _RL_API): return _too_many()
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(connect=4, read=4, write=4, pool=4)) as client:
             r = await client.get(f"{OLLAMA_URL}/api/tags")
             r.raise_for_status()
-            models  = [m["name"] for m in r.json().get("models", [])]
-            running = True
+            raw = [m["name"] for m in r.json().get("models", [])]
+            inst: set[str] = set(raw)
+            for name in raw:
+                if name.endswith(":latest"):
+                    inst.add(name[:-7])
+            _model_cache["installed"] = inst
+            _model_cache["running"]   = True
     except Exception:
-        models, running = [], False
-    return JSONResponse({"models": models, "current": _active_model(), "running": running})
+        _model_cache["running"] = False
+
+    models_out = [
+        {
+            "name":      m["name"],
+            "family":    m["family"],
+            "mode":      m["mode"],
+            "installed": m["name"] in _model_cache["installed"],
+        }
+        for m in _MODEL_CATALOG
+    ]
+    return JSONResponse({
+        "models":  models_out,
+        "current": _active_model(),
+        "running": _model_cache["running"],
+    })
 
 
 @app.post("/api/model")

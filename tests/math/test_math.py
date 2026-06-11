@@ -39,8 +39,9 @@ PROBLEMS = [
     ("PEMDAS / order",     "Evaluate: 3 + 4 × 2 − (6 ÷ 3)",               ["9"]),
 
     # ── Fractions & decimals ────────────────────────────────────────────────
-    ("Fraction add",       "Simplify: 3/8 + 5/12",                         ["19/24"]),
-    ("Fraction multiply",  "Simplify: (2/3) × (9/14)",                     ["3/7"]),
+    # LaTeX alternatives: models write \frac{19}{24} rather than 19/24
+    ("Fraction add",       "Simplify: 3/8 + 5/12",                         ["19/24",  "frac{19}{24}"]),
+    ("Fraction multiply",  "Simplify: (2/3) × (9/14)",                     ["3/7",    "frac{3}{7}"]),
     ("Decimal multiply",   "What is 3.14 × 2.5?",                          ["7.85"]),
     ("Percentage",         "What is 17.5% of 240?",                        ["42"]),
 
@@ -48,7 +49,8 @@ PROBLEMS = [
     ("Linear equation",    "Solve for x: 3x + 7 = 22",                     ["5"]),
     ("Two-variable",       "Solve the system: 2x + y = 10,  x − y = 2",    ["4", "2"]),
     ("Quadratic formula",  "Find the roots of x² − 5x + 6 = 0",            ["2", "3"]),
-    ("Factoring",          "Factor completely: x² − 9",                    ["(x-3)(x+3)", "x+3", "x-3"]),
+    # Factoring: accept spaced form "(x - 3)(x + 3)" that LaTeX models emit
+    ("Factoring",          "Factor completely: x² − 9",                    ["(x-3)(x+3)", "x + 3", "x - 3", "x+3", "x-3"]),
     ("Inequality",         "Solve for x: 2x − 3 < 7",                      ["x < 5", "x<5"]),
     ("Absolute value",     "Solve |2x − 4| = 6",                           ["5", "-1"]),
 
@@ -59,7 +61,8 @@ PROBLEMS = [
     ("Log equation",       "Solve: log(x) + log(x−3) = 1",                 ["5"]),
 
     # ── Trigonometry ────────────────────────────────────────────────────────
-    ("Basic trig",         "What is sin(30°)?",                            ["1/2", "0.5"]),
+    # sin(30°) = 1/2; LaTeX models write \frac{1}{2}
+    ("Basic trig",         "What is sin(30°)?",                            ["1/2", "0.5", "frac{1}{2}"]),
     ("Pythagorean id",     "Simplify: sin²θ + cos²θ",                      ["1"]),
     ("Trig equation",      "Solve for θ in [0°,360°]: 2cos(θ) = √2",       ["45", "315"]),
 
@@ -74,7 +77,8 @@ PROBLEMS = [
     ("Derivative app",     "Find the derivative of f(x) = e^(2x) + ln(x)", ["2e^{2x}", "2e^2x", "1/x"]),
 
     # ── Integrals ───────────────────────────────────────────────────────────
-    ("Indefinite integral",    "Find ∫ x³ dx",                             ["x^4/4", "x4/4"]),
+    # ∫x³dx = x⁴/4 + C; LaTeX models write \frac{x^4}{4}
+    ("Indefinite integral",    "Find ∫ x³ dx",                             ["x^4/4", "x4/4", "frac{x^4}{4}"]),
     ("Indefinite trig",        "Find ∫ cos(x) dx",                         ["sin"]),
     ("U-substitution",         "Find ∫ 2x·e^(x²) dx",                     ["e^{x^2}", "e^x^2", "e^(x²)"]),
     ("Definite integral",      "Evaluate ∫₀² (3x² + 1) dx",               ["10"]),
@@ -130,8 +134,15 @@ def _get_source(base: str, cookie: str) -> str:
 
 
 def _check(text: str, keywords: list[str]) -> bool:
-    """Return True if at least one keyword appears in the text (case-insensitive)."""
-    lower = text.lower()
+    """Return True if at least one keyword appears in the text (case-insensitive).
+
+    Normalises Unicode minus (U+2212) and en/em dashes to ASCII hyphen-minus
+    before matching, so keywords like 'x-3' hit LaTeX source that contains 'x−3'.
+    """
+    lower = (text.lower()
+             .replace("−", "-")   # − unicode minus → -
+             .replace("–", "-")   # – en dash → -
+             .replace("—", "-"))  # — em dash → -
     return any(kw.lower() in lower for kw in keywords)
 
 
