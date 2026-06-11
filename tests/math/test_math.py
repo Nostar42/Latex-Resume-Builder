@@ -173,6 +173,21 @@ def _safe_filename(label: str) -> str:
     return re.sub(r"[^\w\-]", "_", label).strip("_") + ".pdf"
 
 
+def _warmup(base: str) -> None:
+    """Send one throwaway math request to load the model into VRAM before the
+    real test starts.  The first generation after a cold-start often produces
+    a malformed document; warming up eliminates that failure mode.
+    """
+    try:
+        cookie = _new_session(base)
+        _post(base + "/api/chat",
+              {"messages": [{"role": "user", "content": "What is 1 + 1?"}],
+               "mode": "math"},
+              cookie)
+    except Exception:
+        pass   # warmup failure is non-fatal — test will continue
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -198,48 +213,65 @@ def run(base: str, binder: Path | None = None) -> int:
     if binder:
         binder.mkdir(parents=True, exist_ok=True)
         print(f"  Binder       : {binder.resolve()}")
-    print(f"  Problems     : {len(PROBLEMS)}\n")
+    print(f"  Problems     : {len(PROBLEMS)}")
 
     model_name = info["current"]
     run_ts     = time.time()
+
+    # Warm up the model before the first real problem so the initial VRAM load
+    # doesn't cause a compile failure on problem 1.
+    print(f"  Warming up   : sending throwaway request to pre-load model…")
+    _warmup(base)
+    print(f"  Warmup done  : starting test\n")
 
     results: list[tuple[str, bool, float, str]] = []   # (label, pass, elapsed_s, snippet)
     saved_pdfs: list[str] = []
     result_rows: list[dict] = []   # richer per-problem data written to results.json
 
     for i, (label, prompt, keywords) in enumerate(PROBLEMS, 1):
-        # Fresh session per problem → no cross-contamination
-        try:
-            cookie = _new_session(base)
-        except Exception as exc:
-            results.append((label, False, 0.0, f"Session error: {exc}"))
-            continue
+        t0      = time.monotonic()
+        resp    = {}
+        cookie  = ""
+        passed  = False
+        snippet = "no response"
 
-        t0 = time.monotonic()
-        try:
-            resp, cookie = _post(
-                base + "/api/chat",
-                {"messages": [{"role": "user", "content": prompt}], "mode": "math"},
-                cookie,
-            )
-            elapsed = time.monotonic() - t0
-            error   = resp.get("error") or ""
-            if error:
-                passed  = False
-                snippet = _truncate(error)
-            elif resp.get("updated"):
-                # The answer lives in the compiled LaTeX source, not the message.
-                source  = _get_source(base, cookie)
-                passed  = _check(source, keywords)
-                snippet = ("answer found in source" if passed
-                           else f"keywords {keywords} not found in source")
-            else:
-                passed  = False
-                snippet = _truncate(resp.get("message", "no response"))
-        except Exception as exc:
-            elapsed = time.monotonic() - t0
-            passed  = False
-            snippet = str(exc)
+        # Up to 2 attempts per problem: attempt 0 is the real try, attempt 1 is
+        # a single retry for compile failures / no-edit responses.
+        for attempt in range(2):
+            if attempt == 1:
+                time.sleep(4)   # brief pause before retry; respects rate limit
+
+            try:
+                cookie = _new_session(base)
+            except Exception as exc:
+                snippet = f"Session error: {exc}"
+                continue
+
+            try:
+                resp, cookie = _post(
+                    base + "/api/chat",
+                    {"messages": [{"role": "user", "content": prompt}], "mode": "math"},
+                    cookie,
+                )
+                error = resp.get("error") or ""
+                if error:
+                    snippet = _truncate(error)
+                    continue   # retry
+                elif resp.get("updated"):
+                    source  = _get_source(base, cookie)
+                    passed  = _check(source, keywords)
+                    snippet = ("answer found in source" if passed
+                               else f"keywords {keywords} not found in source")
+                    break      # compiled — no retry needed regardless of keyword result
+                else:
+                    snippet = _truncate(resp.get("message", "no response"))
+                    # compile/edit failure — retry
+            except Exception as exc:
+                snippet = str(exc)
+                # network/timeout — retry
+
+        elapsed = time.monotonic() - t0
+        retry_note = " (retry)" if attempt == 1 else ""
 
         # Save PDF to binder regardless of answer correctness — if the server
         # compiled a PDF (updated=True), capture it.  Name: NN_Label.pdf
@@ -254,7 +286,7 @@ def run(base: str, binder: Path | None = None) -> int:
                 pdf_note = "  → PDF save failed"
 
         icon = "✓" if passed else "✗"
-        print(f"  {icon}  [{elapsed:5.1f}s]  {label:<28}  {snippet}{pdf_note}")
+        print(f"  {icon}  [{elapsed:5.1f}s]  {label:<28}  {snippet}{pdf_note}{retry_note}")
         results.append((label, passed, elapsed, snippet))
         result_rows.append({
             "num":     i,

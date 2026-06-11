@@ -819,12 +819,14 @@ Step 2: brief English explanation
 \\[ \\boxed{{final answer}} \\]
 </solution>
 
-Rules:
-- Use LaTeX math notation inside the tags: $...$ for inline math, \\[...\\] for display equations, align* for multi-line chains.
-- Number every step and give a one-line English explanation for each.
-- Box the final answer with \\boxed{{}}.
-- Do NOT output \\documentclass, \\usepackage, \\begin{{document}}, or any preamble — the document wrapper is added automatically.
-- Do NOT wrap output in markdown code fences.{context}"""
+LaTeX math rules — follow exactly to avoid compile errors:
+- Fractions: \\frac{{numerator}}{{denominator}} — both sets of braces required
+- Exponents with more than one character: x^{{n+1}} — curly braces required
+- Every \\begin{{align*}} must have a matching \\end{{align*}}
+- Separate rows in align with \\\\
+- Every $ for inline math must have a matching closing $
+- Do NOT include \\documentclass, \\usepackage, or \\begin{{document}} — the wrapper is added automatically
+- Do NOT use markdown code fences{context}"""
 
 # Fixed LaTeX wrapper — model content is injected into PROBLEM and SOLUTION slots.
 # Using a sentinel-replacement approach so LaTeX braces in the content are safe.
@@ -868,11 +870,42 @@ def _parse_math_tags(text: str) -> dict[str, str]:
     return {"problem": problem, "solution": solution}
 
 
+def _sanitize_math_content(text: str) -> str:
+    """Remove preamble commands that sneak into model output and close any
+    unclosed LaTeX environments so the server-built document compiles cleanly.
+    Safe to call on both <problem> and <solution> content.
+    """
+    # Strip document-level commands the model sometimes includes despite instructions
+    _PREAMBLE = (
+        r"\documentclass", r"\usepackage", r"\begin{document}",
+        r"\end{document}", r"\maketitle", r"\pagestyle", r"\thispagestyle",
+        r"\newpage", r"\clearpage",
+    )
+    lines = [l for l in text.splitlines()
+             if not any(l.strip().startswith(p) for p in _PREAMBLE)]
+    text = "\n".join(lines)
+
+    # Close any unclosed environments (\begin without matching \end)
+    begins = re.findall(r"\\begin\{(\w+\*?)\}", text)
+    ends   = re.findall(r"\\end\{(\w+\*?)\}",   text)
+    from collections import Counter
+    for env, n in (Counter(begins) - Counter(ends)).items():
+        text += ("\n\\end{" + env + "}") * n
+
+    # Balance bare $ signs (odd count → append one closing $)
+    # Count single $ that are not part of $$
+    single_dollars = len(re.findall(r"(?<!\$)\$(?!\$)", text))
+    if single_dollars % 2 == 1:
+        text += "$"
+
+    return text.strip()
+
+
 def _build_math_doc(problem: str, solution: str) -> str:
-    """Inject parsed content into the fixed LaTeX wrapper."""
+    """Sanitize and inject parsed content into the fixed LaTeX wrapper."""
     return (_MATH_TEMPLATE
-            .replace("MATH_PROBLEM_SLOT",  problem  or "See solution below.")
-            .replace("MATH_SOLUTION_SLOT", solution or "(no solution provided)"))
+            .replace("MATH_PROBLEM_SLOT",  _sanitize_math_content(problem  or "See solution below."))
+            .replace("MATH_SOLUTION_SLOT", _sanitize_math_content(solution or "(no solution provided)")))
 
 # ---------------------------------------------------------------------------
 # Security helpers
