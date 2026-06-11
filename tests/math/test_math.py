@@ -189,8 +189,12 @@ def run(base: str, binder: Path | None = None) -> int:
         print(f"  Binder       : {binder.resolve()}")
     print(f"  Problems     : {len(PROBLEMS)}\n")
 
+    model_name = info["current"]
+    run_ts     = time.time()
+
     results: list[tuple[str, bool, float, str]] = []   # (label, pass, elapsed_s, snippet)
     saved_pdfs: list[str] = []
+    result_rows: list[dict] = []   # richer per-problem data written to results.json
 
     for i, (label, prompt, keywords) in enumerate(PROBLEMS, 1):
         # Fresh session per problem → no cross-contamination
@@ -241,6 +245,14 @@ def run(base: str, binder: Path | None = None) -> int:
         icon = "✓" if passed else "✗"
         print(f"  {icon}  [{elapsed:5.1f}s]  {label:<28}  {snippet}{pdf_note}")
         results.append((label, passed, elapsed, snippet))
+        result_rows.append({
+            "num":     i,
+            "label":   label,
+            "prompt":  prompt,
+            "passed":  passed,
+            "elapsed_s": round(elapsed, 1),
+            "pdf":     (binder / f"{i:02d}_{_safe_filename(label)}").name if binder else None,
+        })
 
         # Stay well under the rate limit (10 AI req/min → 6 s gap minimum).
         # Tests already take time so we only sleep if we went unusually fast.
@@ -266,6 +278,21 @@ def run(base: str, binder: Path | None = None) -> int:
         print(f"\n  PDFs saved ({len(saved_pdfs)}/{total}) → {binder.resolve()}")
         for name in saved_pdfs:
             print(f"    {name}")
+
+    # Write machine-readable results alongside the PDFs for build_binder.py to consume.
+    if binder:
+        summary = {
+            "model":       model_name,
+            "run_ts":      run_ts,
+            "total":       total,
+            "passed":      passed_n,
+            "avg_elapsed_s": round(avg_s, 1),
+            "problems":    result_rows,
+        }
+        (binder / "results.json").write_text(
+            json.dumps(summary, indent=2), encoding="utf-8"
+        )
+        print(f"  Results JSON → {(binder / 'results.json').resolve()}")
 
     print(f"{'═'*70}\n")
     return 0 if passed_n == total else 1
