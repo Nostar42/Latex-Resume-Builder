@@ -825,6 +825,8 @@ LaTeX math rules — follow exactly to avoid compile errors:
 - Every \\begin{{align*}} must have a matching \\end{{align*}}
 - Separate rows in align with \\\\
 - Every $ for inline math must have a matching closing $
+- NEVER write align or equation environments inside \\[...\\] — use align* on its own
+- NEVER use Unicode Greek letters (θ α β π etc.) — always write \\theta \\alpha \\beta \\pi
 - Do NOT include \\documentclass, \\usepackage, or \\begin{{document}} — the wrapper is added automatically
 - Do NOT use markdown code fences{context}"""
 
@@ -871,11 +873,13 @@ def _parse_math_tags(text: str) -> dict[str, str]:
 
 
 def _sanitize_math_content(text: str) -> str:
-    """Remove preamble commands that sneak into model output and close any
-    unclosed LaTeX environments so the server-built document compiles cleanly.
-    Safe to call on both <problem> and <solution> content.
-    """
-    # Strip document-level commands the model sometimes includes despite instructions
+    # Remove preamble commands that sneak into model output and fix common
+    # LaTeX errors so the server-built document compiles cleanly.
+    # Fixes: (1) strip preamble lines, (2) replace Unicode Greek letters with
+    # LaTeX commands (theta/alpha/etc — pdflatex+inputenc can't handle them in
+    # text mode), (3) un-nest align environments inside \[...\] which is invalid,
+    # (4) close unclosed begin/end pairs, (5) balance bare $ signs.
+    # 1. Strip preamble lines
     _PREAMBLE = (
         r"\documentclass", r"\usepackage", r"\begin{document}",
         r"\end{document}", r"\maketitle", r"\pagestyle", r"\thispagestyle",
@@ -885,15 +889,44 @@ def _sanitize_math_content(text: str) -> str:
              if not any(l.strip().startswith(p) for p in _PREAMBLE)]
     text = "\n".join(lines)
 
-    # Close any unclosed environments (\begin without matching \end)
+    # 2. Replace Unicode Greek letters with LaTeX equivalents.
+    #    Models write θ, α, β… directly; pdflatex can't handle them in text mode.
+    _GREEK = {
+        "α": r"\alpha",  "β": r"\beta",   "γ": r"\gamma",  "δ": r"\delta",
+        "ε": r"\varepsilon", "ζ": r"\zeta", "η": r"\eta",   "θ": r"\theta",
+        "ι": r"\iota",   "κ": r"\kappa",  "λ": r"\lambda", "μ": r"\mu",
+        "ν": r"\nu",     "ξ": r"\xi",     "π": r"\pi",     "ρ": r"\rho",
+        "σ": r"\sigma",  "τ": r"\tau",    "υ": r"\upsilon","φ": r"\phi",
+        "χ": r"\chi",    "ψ": r"\psi",    "ω": r"\omega",
+        "Γ": r"\Gamma",  "Δ": r"\Delta",  "Θ": r"\Theta",  "Λ": r"\Lambda",
+        "Ξ": r"\Xi",     "Π": r"\Pi",     "Σ": r"\Sigma",  "Υ": r"\Upsilon",
+        "Φ": r"\Phi",    "Ψ": r"\Psi",    "Ω": r"\Omega",
+        # Common math symbols that also cause issues outside math mode
+        "∞": r"\infty", "√": r"\sqrt{}", "∫": r"\int",
+        "×": r"\times", "÷": r"\div",    "≤": r"\leq",    "≥": r"\geq",
+        "≠": r"\neq",   "±": r"\pm",
+    }
+    for char, cmd in _GREEK.items():
+        text = text.replace(char, cmd)
+
+    # 3. Fix nested align/equation environments inside \[…\].
+    #    Pattern: \[\n\begin{align*} … \end{align*}\n\]  →  \begin{align*} … \end{align*}
+    #    Also handles align (without *) and equation.
+    text = re.sub(
+        r"\\\[\s*\n?(\\begin\{(?:align\*?|equation\*?|gather\*?)\}.*?\\end\{(?:align\*?|equation\*?|gather\*?)\})\s*\n?\\\]",
+        r"\1",
+        text,
+        flags=re.DOTALL,
+    )
+
+    # 4. Close any unclosed environments (\begin without matching \end)
     begins = re.findall(r"\\begin\{(\w+\*?)\}", text)
     ends   = re.findall(r"\\end\{(\w+\*?)\}",   text)
     from collections import Counter
     for env, n in (Counter(begins) - Counter(ends)).items():
         text += ("\n\\end{" + env + "}") * n
 
-    # Balance bare $ signs (odd count → append one closing $)
-    # Count single $ that are not part of $$
+    # 5. Balance bare $ signs (odd count → append one closing $)
     single_dollars = len(re.findall(r"(?<!\$)\$(?!\$)", text))
     if single_dollars % 2 == 1:
         text += "$"
