@@ -55,9 +55,9 @@ PROBLEMS = [
     ("Absolute value",     "Solve |2x − 4| = 6",                           ["5", "-1"]),
 
     # ── Exponents & logarithms ──────────────────────────────────────────────
-    ("Exponent rules",     "Simplify: (x³)² × x⁻¹",                       ["x^5", "x5"]),
+    ("Exponent rules",     "Simplify: (x³)² × x⁻¹",                       ["x^5", "x5", "x^{5}"]),
     ("Log evaluation",     "Evaluate: log₂(64)",                           ["6"]),
-    ("Natural log",        "Solve for x: ln(x) = 3",                       ["e^3", "e3", "20.09"]),
+    ("Natural log",        "Solve for x: ln(x) = 3",                       ["e^3", "e3", "20.09", "e^{3}"]),
     ("Log equation",       "Solve: log(x) + log(x−3) = 1",                 ["5"]),
 
     # ── Trigonometry ────────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ PROBLEMS = [
     ("Limit at infinity",  "Find the limit as x→∞ of (3x² + 1)/(x² − 5)",  ["3"]),
 
     # ── Derivatives ─────────────────────────────────────────────────────────
-    ("Power rule",         "Find d/dx of x⁴",                              ["4x^3", "4x3"]),
+    ("Power rule",         "Find d/dx of x⁴",                              ["4x^3", "4x3", "4x^{3}"]),
     ("Product rule",       "Find d/dx of x²·sin(x)",                       ["2x", "cos"]),
     ("Chain rule",         "Find d/dx of sin(3x²)",                        ["6x", "cos"]),
     ("Derivative app",     "Find the derivative of f(x) = e^(2x) + ln(x)", ["2e^{2x}", "2e^2x", "1/x"]),
@@ -80,7 +80,7 @@ PROBLEMS = [
     # ∫x³dx = x⁴/4 + C; LaTeX models write \frac{x^4}{4}
     ("Indefinite integral",    "Find ∫ x³ dx",                             ["x^4/4", "x4/4", "frac{x^4}{4}"]),
     ("Indefinite trig",        "Find ∫ cos(x) dx",                         ["sin"]),
-    ("U-substitution",         "Find ∫ 2x·e^(x²) dx",                     ["e^{x^2}", "e^x^2", "e^(x²)"]),
+    ("U-substitution",         "Find ∫ 2x·e^(x²) dx",                     ["e^{x^2}", "e^x^2", "e^(x²)", "e^{x^{2}}"]),
     ("Definite integral",      "Evaluate ∫₀² (3x² + 1) dx",               ["10"]),
     ("Definite trig integral", "Evaluate ∫₀^π sin(x) dx",                  ["2"]),
 ]
@@ -289,12 +289,13 @@ def run(base: str, binder: Path | None = None) -> int:
         print(f"  {icon}  [{elapsed:5.1f}s]  {label:<28}  {snippet}{pdf_note}{retry_note}")
         results.append((label, passed, elapsed, snippet))
         result_rows.append({
-            "num":     i,
-            "label":   label,
-            "prompt":  prompt,
-            "passed":  passed,
+            "num":       i,
+            "label":     label,
+            "prompt":    prompt,
+            "passed":    passed,
             "elapsed_s": round(elapsed, 1),
-            "pdf":     (binder / f"{i:02d}_{_safe_filename(label)}").name if binder else None,
+            "pdf":       (binder / f"{i:02d}_{_safe_filename(label)}").name if binder else None,
+            "message":   snippet,   # stored for post-run analysis
         })
 
         # Stay well under the rate limit (10 AI req/min → 6 s gap minimum).

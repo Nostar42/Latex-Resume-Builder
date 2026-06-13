@@ -873,21 +873,38 @@ def _parse_math_tags(text: str) -> dict[str, str]:
 
 
 def _sanitize_math_content(text: str) -> str:
-    # Remove preamble commands that sneak into model output and fix common
-    # LaTeX errors so the server-built document compiles cleanly.
-    # Fixes: (1) strip preamble lines, (2) replace Unicode Greek letters with
-    # LaTeX commands (theta/alpha/etc — pdflatex+inputenc can't handle them in
-    # text mode), (3) un-nest align environments inside \[...\] which is invalid,
-    # (4) close unclosed begin/end pairs, (5) balance bare $ signs.
-    # 1. Strip preamble lines
-    _PREAMBLE = (
-        r"\documentclass", r"\usepackage", r"\begin{document}",
-        r"\end{document}", r"\maketitle", r"\pagestyle", r"\thispagestyle",
-        r"\newpage", r"\clearpage",
-    )
-    lines = [l for l in text.splitlines()
-             if not any(l.strip().startswith(p) for p in _PREAMBLE)]
-    text = "\n".join(lines)
+    # Clean model-generated math content so it compiles inside the server template.
+    #
+    # Fix 1 — Document body extraction (primary fix for full-document outputs):
+    #   Some models output a complete \documentclass...\end{document} inside the
+    #   solution tag despite instructions.  Extract only the body (content between
+    #   \begin{document} and \end{document}) which preserves the actual math steps.
+    #   Fall back to preamble-line stripping if no document markers are found.
+    #
+    # Fix 2 — Unicode Greek → LaTeX commands
+    # Fix 3 — Un-nest align environments inside \[...\]
+    # Fix 4 — Close unclosed \begin{env} / \end{env} pairs
+    # Fix 5 — Balance bare $ signs
+    # Fix 6 — Wrap standalone \begin{aligned} (needs outer math environment)
+    # Fix 7 — Replace $$ display math with \[...\]
+
+    # 1a. Body extraction — if the text is a full document, keep only the body.
+    _BEGIN_DOC = r"\begin{document}"
+    _END_DOC   = r"\end{document}"
+    body_start = text.find(_BEGIN_DOC)
+    body_end   = text.rfind(_END_DOC)
+    if body_start != -1 and body_end != -1 and body_start < body_end:
+        text = text[body_start + len(_BEGIN_DOC):body_end].strip()
+    else:
+        # 1b. No document markers — strip individual preamble lines
+        _PREAMBLE = (
+            r"\documentclass", r"\usepackage", r"\begin{document}",
+            r"\end{document}", r"\maketitle", r"\pagestyle", r"\thispagestyle",
+            r"\newpage", r"\clearpage",
+        )
+        lines = [l for l in text.splitlines()
+                 if not any(l.strip().startswith(p) for p in _PREAMBLE)]
+        text = "\n".join(lines)
 
     # 2. Replace Unicode Greek letters with LaTeX equivalents.
     #    Models write θ, α, β… directly; pdflatex can't handle them in text mode.
@@ -930,6 +947,19 @@ def _sanitize_math_content(text: str) -> str:
     single_dollars = len(re.findall(r"(?<!\$)\$(?!\$)", text))
     if single_dollars % 2 == 1:
         text += "$"
+
+    # 6. Wrap standalone \begin{aligned}...\end{aligned} in \[...\].
+    #    aligned must be inside a math environment; some models use it alone.
+    text = re.sub(
+        r"(?<!\$)(?<!\[)(\\begin\{aligned\}.*?\\end\{aligned\})(?!\$)(?!\])",
+        r"\[\1\]",
+        text,
+        flags=re.DOTALL,
+    )
+
+    # 7. Replace deprecated $$...$$ display math with \[...\]
+    #    In re.sub replacement strings, \\ = one literal backslash.
+    text = re.sub(r"\$\$(.*?)\$\$", r"\\[\1\\]", text, flags=re.DOTALL)
 
     return text.strip()
 
